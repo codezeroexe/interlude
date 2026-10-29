@@ -19,6 +19,7 @@ enum CardRenderer {
             backdrop(i)
             renderStandby(overlay: overlay, to: folder, name: "-" + url.deletingPathExtension().lastPathComponent)
         }
+        renderGallery(model: overlay.demo, to: folder.appending(path: "gallery"), backdrops: backdrops)
         backdrop(0)
         renderStandby(overlay: overlay, to: folder)
         let panes = SettingsPane.allCases
@@ -57,6 +58,54 @@ enum CardRenderer {
             }
         }
         next(0)
+    }
+
+    /// One picture per widget: every size and style it comes in, in glass on a wallpaper, for the README.
+    static func renderGallery(model: OverlayModel, to folder: URL, backdrops: [URL]) {
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let entrance = Entrance()
+        entrance.shown = true
+        let grid = Grid.preview(u: 9)
+        let pad: CGFloat = 56, gap: CGFloat = 36, caption: CGFloat = 30
+        for (i, widget) in Widget.allCases.enumerated() {
+            if !backdrops.isEmpty { PreviewBackdrop.image = NSImage(contentsOf: backdrops[(i + 2) % backdrops.count]) }
+            let sizes = widget.sizes
+            let rowWidth = { (s: WidgetSize) in CGFloat(widget.styles(s).count) * (grid.w(s) + gap) - gap }
+            let size = CGSize(width: sizes.map(rowWidth).max()! + 2 * pad,
+                              height: sizes.map { grid.h($0) + caption + gap }.reduce(0, +) - gap + 2 * pad)
+            let sheet = ZStack(alignment: .topLeading) {
+                PreviewBackdrop().frame(width: size.width, height: size.height).clipped()
+                VStack(alignment: .leading, spacing: gap) {
+                    ForEach(sizes) { cardSize in
+                        HStack(alignment: .top, spacing: gap) {
+                            ForEach(widget.styles(cardSize).indices, id: \.self) { style in
+                                VStack(alignment: .leading, spacing: 12) {
+                                    WidgetCardView(model: model, widget: widget, size: cardSize, style: style, grid: grid)
+                                    Text("\(cardSize.name) · \(widget.styles(cardSize)[style])".uppercased())
+                                        .font(.custom("DM Mono", size: 13))
+                                        .tracking(1.5)
+                                        .opacity(0.85)
+                                        .shadow(color: .black.opacity(0.6), radius: 6)
+                                        .frame(height: caption - 12, alignment: .leading)
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(pad)
+            }
+            .frame(width: size.width, height: size.height)
+            .frostBackdrop(size)
+            let renderer = ImageRenderer(content: sheet
+                .foregroundStyle(.white)
+                .environment(\.colorScheme, .dark)
+                .environment(\.plainCards, true)
+                .environmentObject(entrance))
+            renderer.scale = 2
+            guard let tiff = renderer.nsImage?.tiffRepresentation,
+                  let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else { continue }
+            try? png.write(to: folder.appendingPathComponent("\(widget.rawValue).png"))
+        }
     }
 
     /// The standby screen with sample data, and the welcome window's picture, for the README.

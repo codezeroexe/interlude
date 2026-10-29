@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/media/banner.webp" alt="Interlude: a calm screen for when you step away. The logo and title beside the welcome window, a standby screen over Yosemite, and floating Now Playing, battery and weather cards." width="100%">
+  <img src="docs/media/banner.webp" alt="Interlude: the screensaver Apple never made. The logo and title beside two standby screens, over Yosemite and Dubai, with floating Now Playing and weather widgets." width="100%">
 </p>
 
 <p align="center">
@@ -11,69 +11,92 @@
 
 ---
 
-## What is this?
+## The screensaver Apple never made
 
-When your Mac has been idle for a few minutes, Interlude fills the screen with one of Apple's aerial
-videos and a set of glass cards: a large clock, the weather, your calendar and reminders, world
-clocks, a focus timer and what's playing. When music is playing, the album art can become the
-background. Move the mouse, press Esc or click the wallpaper to go back to work.
+Apple's aerial screensavers are some of the best footage ever put on a Mac, and all they show you is
+the view. Interlude keeps the view and adds what you'd want to glance at from across the room: the
+time, the weather, your day, what's playing. Glass widgets, in the style of macOS, over the same aerials.
 
-It's StandBy for the Mac: something worth glancing at from across the room, instead of a black screen.
-
-## See it
+It starts when your Mac has been idle for a few minutes. Move the mouse, press Esc or click the
+wallpaper, and you're back.
 
 <p align="center">
-  <img src="docs/media/standby.webp" alt="The standby screen on a MacBook: Now Playing, calendar, battery and a large clock in glass cards over a Hawaiian coastline" width="100%">
+  <img src="docs/media/standby.webp" alt="Interlude on a MacBook: Now Playing, calendar, battery and a large clock in glass widgets over a Hawaiian coastline" width="100%">
 </p>
 
-<table>
-<tr>
-<td width="55%"><img src="docs/media/welcome.webp" alt="The welcome window, showing the standby screen built from the real cards"></td>
-<td><b>A short welcome</b><br><br>Five quick steps on first launch: when Interlude starts, a starting layout, and which cards may read your calendar, reminders, location and music. Every step can be skipped, and Settings › Privacy can show it again.</td>
-</tr>
-<tr>
-<td><img src="docs/media/starter-layouts.webp" alt="Picking a starting layout: Minimal, Your Day or At the Desk"></td>
-<td><b>Pick a layout</b><br><br>Minimal, Your Day or At the Desk. Each thumbnail is drawn with the real cards, so what you pick is what you get.</td>
-</tr>
-<tr>
-<td><img src="docs/media/settings-layout.webp" alt="Settings › Layout: the whole screen in miniature with cards to drag, resize and restyle"></td>
-<td><b>Your screen, your way</b><br><br>Drag cards around a miniature of your screen, resize them, pick a style for each, or add more from the gallery. Separate layouts can take over while music plays or at night.</td>
-</tr>
-<tr>
-<td><img src="docs/media/settings-appearance.webp" alt="Settings › Appearance: clock font and colour, night mode and card material, with a live preview"></td>
-<td><b>Appearance</b><br><br>Clock font and colour (including one that matches the album art), a night mode that dims everything to red or grey, and frosted or Liquid Glass cards. The preview updates as you change things.</td>
-</tr>
-</table>
+## Widgets
+
+Eight widgets, each in two to four sizes and two or three styles. Place them anywhere on a grid that
+fits your screen, and keep separate layouts for when music plays and for night.
+
+### Clock
+
+SF Pro or a serif, in white, a colour you pick or the colour of the album playing. Digital or analog,
+from a small square to the full width of the screen.
+
+<img src="docs/media/widgets/clock.webp" alt="The Clock widget in every size and style: stacked, analog, classic, centred, big and with info" width="100%">
 
 <table>
 <tr>
-<td width="33%"><img src="docs/media/settings-music.webp" alt="Settings › Music: what sits behind the Now Playing card, and which players Interlude may read"></td>
-<td width="33%"><img src="docs/media/settings-widgets.webp" alt="Settings › Widgets: world clock cities, focus timer length and reminders list"></td>
-<td width="33%"><img src="docs/media/settings-wallpaper.webp" alt="Settings › Wallpaper: aerials from System Settings, by category"></td>
+<td width="50%" valign="top">
+<h3>Weather</h3>
+Now, the next hours, the week ahead or the details, for your approximate location.
+<br><br>
+<img src="docs/media/widgets/weather.webp" alt="The Weather widget in every size and style">
+</td>
+<td width="50%" valign="top">
+<h3>Calendar</h3>
+The month, today's events, the next one up, or an agenda for the week.
+<br><br>
+<img src="docs/media/widgets/calendar.webp" alt="The Calendar widget in every size and style">
+</td>
 </tr>
 <tr>
-<td align="center"><sub>Music</sub></td>
-<td align="center"><sub>Widgets</sub></td>
-<td align="center"><sub>Wallpaper</sub></td>
+<td valign="top">
+<h3>Reminders</h3>
+Your default list, by due date or in columns. Click a circle to complete one.
+<br><br>
+<img src="docs/media/widgets/reminders.webp" alt="The Reminders widget in every size and style">
+</td>
+<td valign="top">
+<h3>World Clock</h3>
+Four cities of your choice, as clock faces or digits.
+<br><br>
+<img src="docs/media/widgets/worldClock.webp" alt="The World Clock widget in every size and style">
+</td>
+</tr>
+<tr>
+<td valign="top">
+<h3>Focus Timer</h3>
+Click to start, right-click to reset. It keeps running while Interlude is closed and chimes when it ends.
+<br><br>
+<img src="docs/media/widgets/timer.webp" alt="The Focus Timer widget in every size and style">
+</td>
+<td valign="top">
+<h3>Battery</h3>
+Your Mac, AirPods, mouse and keyboard, as rings or a list.
+<br><br>
+<img src="docs/media/widgets/battery.webp" alt="The Battery widget in every size and style">
+</td>
 </tr>
 </table>
 
-<sub>Screenshots are drawn by the app itself, with sample data.</sub>
+### Now Playing
 
-## Features
+Apple Music and Spotify. Space plays or pauses, ← and → skip. While music plays, the album art can
+take over the background. When nothing plays, the widget says so.
 
-- **Clock** in four sizes and several styles, in SF Pro or a serif, in white, a custom colour or the album's colour.
-- **Weather** for your approximate location, now and for the next hours or days.
-- **Calendar**: a month, today's agenda or the next event.
-- **Reminders** from your default list. Click a circle to complete one.
-- **Now playing** for Apple Music and Spotify. Space plays or pauses, ← and → skip tracks. When nothing plays, the card says so.
-- **World clock** with four cities, and a **focus timer** that keeps running while Interlude is closed.
-- **Battery** for your Mac and connected devices.
-- **Night mode** on a schedule or always: no wallpaper, every card dimmed to red or grey.
-- **Aerial wallpapers** from System Settings › Wallpaper. Downloaded aerials play from disk.
-- **Start rules**: only while charging, wait during video calls or films, choose a display.
+<img src="docs/media/widgets/nowPlaying.webp" alt="The Now Playing widget in every size and style, with nothing playing" width="100%">
 
-Interlude lives in the menu bar. It has no Dock icon.
+<sub>Every picture here is drawn by the app itself, with sample data.</sub>
+
+## And everything around them
+
+- **Liquid Glass or frosted** widgets, dark or light, with the blur and tint you like.
+- **Every aerial** from System Settings › Wallpaper: one you pick, a category, or a new one each time.
+- **Night mode** on a schedule or always: the wallpaper goes dark and every widget dims to red or grey.
+- **Start rules**: only while charging, wait during video calls and films, pick the display.
+- **Lives in the menu bar**, with no Dock icon.
 
 ## Requirements
 
