@@ -10,6 +10,9 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp Fonts/*.ttf "$APP/Contents/Resources/" # Instrument Serif and DM Mono (SIL Open Font License)
 cp Fonts/OFL.txt "$APP/Contents/Resources/" # the font license must ship with the fonts
 cp branding/AppIcon.icns "$APP/Contents/Resources/" # made from branding/logo.svg
+# A wallpaper still behind the card previews in Settings, if you have one. Not in the repo: aerial stills
+# are Apple's. Without it, previews sit on a dusk gradient.
+[[ -f branding/backdrop.jpg ]] && cp branding/backdrop.jpg "$APP/Contents/Resources/"
 cp "$(swift build -c release --build-path .build-release --show-bin-path)/Interlude" "$APP/Contents/MacOS/"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'

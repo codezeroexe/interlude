@@ -15,6 +15,8 @@ enum AerialCatalog {
         let id: String
         let name: String
         let url: URL
+        /// A still from Apple's servers, for the picker in Settings.
+        let preview: URL?
     }
 
     /// Wallpaper setting: "all", "category:<key>" or "aerial:<id>".
@@ -51,7 +53,7 @@ enum AerialCatalog {
                     aerials: catalog.assets.filter { $0.categories.contains(category.id) }.compactMap { asset in
                         guard let url = source.localFile(asset.id) ?? asset.url4K.flatMap(URL.init(string:)) else { return nil }
                         let name = asset.localizedNameKey.flatMap { names[$0] } ?? asset.accessibilityLabel ?? "Aerial"
-                        return Aerial(id: asset.id, name: name, url: url)
+                        return Aerial(id: asset.id, name: name, url: url, preview: asset.previewImage.flatMap(URL.init(string:)))
                     }
                 )
             }.filter { !$0.aerials.isEmpty }
@@ -100,8 +102,9 @@ enum AerialCatalog {
         let accessibilityLabel: String?
         let localizedNameKey: String?
         let url4K: String?
+        let previewImage: String?
         enum CodingKeys: String, CodingKey {
-            case id, categories, accessibilityLabel, localizedNameKey
+            case id, categories, accessibilityLabel, localizedNameKey, previewImage
             case url4K = "url-4K-SDR-240FPS"
         }
     }

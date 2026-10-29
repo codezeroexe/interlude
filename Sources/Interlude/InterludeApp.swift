@@ -4,20 +4,35 @@ import SwiftUI
 struct InterludeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
+    // The welcome window can draw before the app finishes launching, so the clock fonts load first.
+    init() { ClockFont.registerBundledFonts() }
+
     var body: some Scene {
-        MenuBarExtra("Interlude", systemImage: "clock") {
+        MenuBarExtra {
             MenuContent(overlay: delegate.overlay)
+        } label: {
+            Image(nsImage: MenuBarIcon.image)
         }
         // A full, resizable window with a sidebar, like System Settings, instead of a small fixed panel.
         Window("Interlude Settings", id: SettingsView.windowID) {
             SettingsView(overlay: delegate.overlay)
+                .windowMinimizeBehavior(.disabled) // ⌘, reopens it, so it needn't sit in the Dock
         }
-        .defaultSize(width: 920, height: 700)
+        .defaultSize(width: 860, height: 620)
         .windowResizability(.contentMinSize)
-        .windowToolbarStyle(.unified)
+        .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .appSettings) { OpenSettingsButton() }
         }
+        // Opens by itself on the first launch only; Settings › Privacy can show it again.
+        Window("Welcome to Interlude", id: OnboardingView.windowID) {
+            OnboardingView(overlay: delegate.overlay)
+                .windowMinimizeBehavior(.disabled)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentSize)
+        .restorationBehavior(.disabled)
+        .defaultLaunchBehavior(UserDefaults.standard.bool(forKey: OnboardingView.doneKey) ? .suppressed : .presented)
     }
 }
 
@@ -40,16 +55,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var idle: IdleMonitor?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        ClockFont.registerBundledFonts()
-        // Ask for calendar, location and player-control access now, while no overlay covers the system prompt.
-        overlay.model.calendar.requestAccess()
-        overlay.model.weather.requestAccess()
-        overlay.model.reminders.requestAccess()
-        overlay.model.nowPlaying.requestPermissions()
+        // After the welcome window has run, ask for anything still undecided now, while no overlay covers
+        // the system prompt. Before that, the welcome window asks, one card at a time.
+        if UserDefaults.standard.bool(forKey: OnboardingView.doneKey) {
+            overlay.model.calendar.requestAccess()
+            overlay.model.weather.requestAccess()
+            overlay.model.reminders.requestAccess()
+            overlay.model.nowPlaying.requestPermissions()
+        }
         idle = IdleMonitor(overlay: overlay)
         idle?.start()
         // `open Interlude.app --args --show` opens the overlay straight away (handy for testing).
         if CommandLine.arguments.contains("--show") { overlay.show() }
+        // `Interlude --render-settings <folder>` saves each Settings pane as a PNG and quits.
+        if let i = CommandLine.arguments.firstIndex(of: "--render-settings"), i + 1 < CommandLine.arguments.count {
+            let pane = UserDefaults.standard.string(forKey: "settingsPane")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                CardRenderer.renderSettings(overlay: self.overlay, to: URL(fileURLWithPath: CommandLine.arguments[i + 1])) {
+                    UserDefaults.standard.set(pane, forKey: "settingsPane")
+                    NSApp.terminate(nil)
+                }
+            }
+        }
         // `Interlude --render-cards <folder>` saves each card as a PNG and quits (for checking layouts).
         if let i = CommandLine.arguments.firstIndex(of: "--render-cards"), i + 1 < CommandLine.arguments.count {
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) {

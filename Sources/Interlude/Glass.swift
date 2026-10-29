@@ -186,7 +186,27 @@ private struct PlainCardsKey: EnvironmentKey {
     static let defaultValue = false
 }
 
+private struct PreviewMusicKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+private struct ClockFontOverrideKey: EnvironmentKey {
+    static let defaultValue: ClockFont? = nil
+}
+
 extension EnvironmentValues {
+    /// A clock font for previews that shouldn't follow Settings, like the welcome window's serif clock.
+    var clockFontOverride: ClockFont? {
+        get { self[ClockFontOverrideKey.self] }
+        set { self[ClockFontOverrideKey.self] = newValue }
+    }
+
+    /// Settings previews: act as if music is playing, so "Match Music" colours show even when paused.
+    var previewMusic: Bool {
+        get { self[PreviewMusicKey.self] }
+        set { self[PreviewMusicKey.self] = newValue }
+    }
+
     /// Off-screen rendering can't draw glass, so cards get a plain fill instead.
     var plainCards: Bool {
         get { self[PlainCardsKey.self] }

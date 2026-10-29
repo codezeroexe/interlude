@@ -25,6 +25,28 @@ final class NowPlaying: ObservableObject {
     @Published private(set) var track: Track?
     @Published private(set) var artwork: NSImage?
     @Published private(set) var palette = Palette.fallback
+
+    /// Debug: shows a made-up track, for the card renderer when nothing is playing.
+    func preview(_ track: Track, artwork: NSImage?) {
+        self.track = track
+        self.artwork = artwork
+    }
+    /// A made-up track for previews in Settings while nothing plays. Never polls.
+    static let sample: NowPlaying = {
+        let sample = NowPlaying()
+        // Rings like a speaker cone, so the cover styles have something to show.
+        let art = NSImage(size: NSSize(width: 600, height: 600), flipped: false) { rect in
+            for (i, white) in [0.4, 0.1, 0.5, 0.08, 0.6, 0.12, 0.85].enumerated() {
+                NSColor(white: white, alpha: 1).setFill()
+                NSBezierPath(ovalIn: rect.insetBy(dx: CGFloat(i) * 42, dy: CGFloat(i) * 42)).fill()
+            }
+            return true
+        }
+        sample.preview(Track(player: .music, title: "Lulu", artist: "The Neighbourhood", duration: 200,
+                             position: 20, playing: true, artworkURL: nil), artwork: art)
+        return sample
+    }()
+
     private var pausedSince: Date?
     private var emptyReads = 0
     private var timer: Timer?
@@ -36,8 +58,10 @@ final class NowPlaying: ObservableObject {
         return track.playing || Date().timeIntervalSince(pausedSince ?? .now) < 5 * 60
     }
 
-    /// Polls once a second while the overlay is showing.
+    /// Polls once a second while the overlay or Settings is showing. Each `start` needs its own `stop`.
     func start() {
+        users += 1
+        guard timer == nil else { return }
         poll()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.poll() }
@@ -45,9 +69,13 @@ final class NowPlaying: ObservableObject {
     }
 
     func stop() {
+        users = max(0, users - 1)
+        guard users == 0 else { return }
         timer?.invalidate()
         timer = nil
     }
+
+    private var users = 0
 
     /// Asks for permission to control running players. Called while the overlay is hidden,
     /// so the system prompt isn't stuck behind it.

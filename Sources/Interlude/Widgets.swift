@@ -7,59 +7,166 @@ import SwiftUI
 
 // MARK: - Weather
 
-/// Like the Weather widget: place, temperature, condition, high and low, then the next hours,
+/// Like the Weather widget: place, temperature, condition, high and low, then the next hours or days,
 /// in white on glass like every other card.
 struct WeatherCard: View {
     @ObservedObject var weather: WeatherStore
     let grid: Grid
+    var size: WidgetSize = .medium
+    var style = 0
 
     var body: some View {
+        content
+            .monospacedDigit()
+            .padding(1.8 * grid.u)
+            .frame(width: grid.w(size), height: grid.h(size), alignment: .topLeading)
+            .glass(grid)
+    }
+
+    private var temperature: String { weather.temperature.map { "\($0)°" } ?? "--" }
+    private var highLow: String? { weather.high.flatMap { h in weather.low.map { "H:\(h)° L:\($0)°" } } }
+
+    @ViewBuilder private var content: some View {
         let u = grid.u
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 0) {
-                    HStack(spacing: 0.4 * u) {
-                        Text(weather.city ?? "My Location")
-                        Image(systemName: "location.fill").font(.system(size: 1.1 * u))
-                    }
-                    .font(.system(size: 1.8 * u, weight: .semibold))
-                    RollingText(text: weather.temperature.map { "\($0)°" } ?? "--", distance: 3 * u, tracking: 0)
-                        .font(.system(size: 5.6 * u, weight: .regular))
-                }
-                Spacer(minLength: 0)
-                VStack(alignment: .trailing, spacing: 0.2 * u) {
-                    Image(systemName: weather.symbol + ".fill")
-                        .symbolRenderingMode(.hierarchical)
-                        .font(.system(size: 2.2 * u))
-                    Text(weather.condition)
-                        .font(.system(size: 1.5 * u, weight: .semibold))
-                    if let high = weather.high, let low = weather.low {
-                        Text("H:\(high)° L:\(low)°").font(.system(size: 1.5 * u, weight: .medium))
-                    }
-                }
+        switch (size, style) {
+        case (.small, 1):
+            VStack(spacing: 0.4 * u) {
+                Image(systemName: weather.symbol + ".fill").symbolRenderingMode(.hierarchical).font(.system(size: 6.4 * u))
+                    .frame(height: 8 * u)
+                RollingText(text: temperature, distance: 2 * u, tracking: 0).font(.system(size: 3 * u, weight: .medium))
+                Text(weather.city ?? "My Location").font(.system(size: 1.4 * u)).opacity(0.6).lineLimit(1)
             }
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case (.small, _):
+            VStack(alignment: .leading, spacing: 0) {
+                place
+                RollingText(text: temperature, distance: 3 * u, tracking: 0).font(.system(size: 5.2 * u))
+                Spacer(minLength: 0)
+                Image(systemName: weather.symbol + ".fill").symbolRenderingMode(.hierarchical).font(.system(size: 1.8 * u))
+                Text(weather.condition).font(.system(size: 1.4 * u, weight: .semibold)).lineLimit(1)
+                if let highLow { Text(highLow).font(.system(size: 1.4 * u, weight: .medium)).opacity(0.7) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        case (.medium, 1) where !weather.days.isEmpty:
             HStack(spacing: 0) {
-                ForEach(Array(weather.hours.enumerated()), id: \.element.id) { i, hour in
-                    VStack(spacing: 0.5 * u) {
-                        Text(i == 0 ? "Now" : hour.time.formatted(.dateTime.hour(.defaultDigits(amPM: .abbreviated))))
-                            .font(.system(size: 1.3 * u, weight: .semibold))
-                            .opacity(0.8)
-                        Image(systemName: hour.symbol + ".fill")
-                            .symbolRenderingMode(.hierarchical)
-                            .font(.system(size: 1.8 * u))
-                            .frame(height: 2.2 * u)
-                        RollingText(text: "\(hour.temperature)°", distance: 1 * u, tracking: 0)
-                            .font(.system(size: 1.5 * u, weight: .semibold))
+                ForEach(weather.days.prefix(5)) { day in
+                    VStack(spacing: 0.8 * u) {
+                        Text(Calendar.current.isDateInToday(day.date) ? "Today" : day.date.formatted(.dateTime.weekday(.abbreviated)))
+                            .font(.system(size: 1.4 * u, weight: .semibold)).opacity(0.7)
+                        Image(systemName: day.symbol + ".fill").symbolRenderingMode(.hierarchical).font(.system(size: 2.4 * u))
+                            .frame(height: 3 * u)
+                        Text("\(day.high)°").font(.system(size: 1.8 * u, weight: .semibold))
+                        Text("\(day.low)°").font(.system(size: 1.5 * u)).opacity(0.6)
                     }
                     .frame(maxWidth: .infinity)
                 }
             }
+            .frame(maxHeight: .infinity)
+        case (.medium, _):
+            VStack(spacing: 0) {
+                header
+                Spacer(minLength: 0)
+                hours
+            }
+        case (.large, 1):
+            VStack(alignment: .leading, spacing: 0) {
+                place
+                RollingText(text: temperature, distance: 3 * u, tracking: 0).font(.system(size: 8 * u, weight: .thin))
+                Text([weather.condition, highLow].compactMap { $0 }.joined(separator: " · "))
+                    .font(.system(size: 1.6 * u)).opacity(0.7)
+                Spacer(minLength: 0)
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 1 * u), GridItem(.flexible())], spacing: 1 * u) {
+                    tile("FEELS LIKE", weather.feelsLike.map { "\($0)°" })
+                    tile("HUMIDITY", weather.humidity.map { "\($0)%" })
+                    tile("WIND", weather.wind.map { "\($0) \(Locale.current.measurementSystem == .us ? "mph" : "km/h")" })
+                    tile("TOMORROW", weather.days.dropFirst().first.map { "\($0.high)° / \($0.low)°" })
+                }
+            }
+        case (.large, _):
+            VStack(spacing: 0) {
+                header
+                hours.padding(.vertical, 1.4 * u)
+                Divider().overlay(.white.opacity(0.2))
+                days(Array(weather.days.dropFirst().prefix(4)))
+                    .padding(.top, 1 * u)
+                Spacer(minLength: 0)
+            }
+        default:
+            header
         }
-        .monospacedDigit()
-        .padding(1.8 * u)
-        .frame(width: grid.wide, height: grid.s)
-        .glass(grid)
+    }
+
+    private var place: some View {
+        HStack(spacing: 0.4 * grid.u) {
+            Text(weather.city ?? "My Location").lineLimit(1)
+            Image(systemName: "location.fill").font(.system(size: 1.1 * grid.u))
+        }
+        .font(.system(size: 1.8 * grid.u, weight: .semibold))
+    }
+
+    private var header: some View {
+        let u = grid.u
+        return HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 0) {
+                place
+                RollingText(text: temperature, distance: 3 * u, tracking: 0).font(.system(size: 5.6 * u, weight: .regular))
+            }
+            Spacer(minLength: 0)
+            VStack(alignment: .trailing, spacing: 0.2 * u) {
+                Image(systemName: weather.symbol + ".fill").symbolRenderingMode(.hierarchical).font(.system(size: 2.2 * u))
+                Text(weather.condition).font(.system(size: 1.5 * u, weight: .semibold))
+                if let highLow { Text(highLow).font(.system(size: 1.5 * u, weight: .medium)) }
+            }
+        }
+    }
+
+    private var hours: some View {
+        let u = grid.u
+        return HStack(spacing: 0) {
+            ForEach(Array(weather.hours.enumerated()), id: \.element.id) { i, hour in
+                VStack(spacing: 0.5 * u) {
+                    Text(i == 0 ? "Now" : hour.time.formatted(.dateTime.hour(.defaultDigits(amPM: .abbreviated))))
+                        .font(.system(size: 1.3 * u, weight: .semibold))
+                        .opacity(0.8)
+                    Image(systemName: hour.symbol + ".fill")
+                        .symbolRenderingMode(.hierarchical)
+                        .font(.system(size: 1.8 * u))
+                        .frame(height: 2.2 * u)
+                    RollingText(text: "\(hour.temperature)°", distance: 1 * u, tracking: 0)
+                        .font(.system(size: 1.5 * u, weight: .semibold))
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    /// One row per day with a bar showing its range within the week's lowest and highest.
+    private func days(_ list: [WeatherStore.Day]) -> some View {
+        let u = grid.u
+        let lo = Double(weather.days.map(\.low).min() ?? 0), hi = Double(weather.days.map(\.high).max() ?? 1)
+        let span = max(1, hi - lo)
+        return VStack(spacing: 1 * u) {
+            ForEach(list) { day in
+                HStack(spacing: 1.2 * u) {
+                    Text(day.date.formatted(.dateTime.weekday(.abbreviated))).frame(width: 4.5 * u, alignment: .leading)
+                    Image(systemName: day.symbol + ".fill").symbolRenderingMode(.hierarchical).frame(width: 2.6 * u)
+                    Text("\(day.low)°").opacity(0.6).frame(width: 3.2 * u, alignment: .trailing)
+                    Bar(fraction: (Double(day.high) - lo) / span, height: 0.45 * u, from: (Double(day.low) - lo) / span)
+                    Text("\(day.high)°").frame(width: 3.2 * u, alignment: .trailing)
+                }
+                .font(.system(size: 1.6 * u, weight: .medium))
+            }
+        }
+    }
+
+    private func tile(_ label: String, _ value: String?) -> some View {
+        VStack(alignment: .leading, spacing: 0.3 * grid.u) {
+            Text(label).font(.system(size: 1.1 * grid.u, weight: .semibold)).tracking(0.08 * grid.u).opacity(0.55)
+            Text(value ?? "--").font(.system(size: 2 * grid.u, weight: .medium)).lineLimit(1)
+        }
+        .padding(1 * grid.u)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 1.4 * grid.u, style: .continuous).fill(.white.opacity(0.08)))
     }
 }
 
@@ -103,6 +210,15 @@ final class ReminderStore: ObservableObject {
         }
     }
 
+    /// Debug: a few reminders, for the card renderer.
+    func preview() {
+        let cal = Calendar.current
+        let d = { (days: Int) in cal.date(byAdding: .day, value: days, to: .now) }
+        items = [("Groceries", d(0)), ("Call bank", d(0)), ("Pay rent", d(1)), ("Book flight", d(4)),
+                 ("Renew ID", nil), ("Water plants", nil), ("Return library books", d(6))]
+            .enumerated().map { Item(id: "\($0.offset)", title: $0.element.0, due: $0.element.1) }
+    }
+
     /// Ticks a reminder off, as clicking its circle does in the Reminders widget.
     func complete(_ item: Item) {
         guard let reminder = store.calendarItem(withIdentifier: item.id) as? EKReminder else { return }
@@ -112,17 +228,19 @@ final class ReminderStore: ObservableObject {
     }
 }
 
-/// Like the Reminders widget, in white: list name and count, then the first few items with
-/// circles you can click to complete them.
+/// Like the Reminders widget, in white: list name and count, then items with circles you can click to
+/// complete them.
 struct RemindersCard: View {
     @ObservedObject var reminders: ReminderStore
     let grid: Grid
+    var size: WidgetSize = .medium
+    var style = 0
 
     var body: some View {
         Group {
-            if reminders.items.isEmpty { allDone } else { list }
+            if reminders.items.isEmpty { allDone } else { list.padding(1.8 * grid.u).transition(.opacity) }
         }
-        .frame(width: grid.wide, height: grid.s)
+        .frame(width: grid.w(size), height: grid.h(size), alignment: .topLeading)
         .glass(grid)
         .animation(Motion.layout, value: reminders.items.isEmpty)
     }
@@ -131,60 +249,131 @@ struct RemindersCard: View {
     private var allDone: some View {
         let u = grid.u
         return VStack(spacing: 0.8 * u) {
-            Image(systemName: "checkmark.circle").font(.system(size: 4.4 * u, weight: .light))
+            Image(systemName: "checkmark.circle").font(.system(size: (size == .small ? 3.4 : 4.4) * u, weight: .light))
             Text("All done").font(.system(size: 2 * u, weight: .semibold))
             Text(reminders.listName).font(.system(size: 1.4 * u)).opacity(0.6)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .transition(.opacity)
     }
 
-    private var list: some View {
-        let u = grid.u
-        return HStack(alignment: .top, spacing: 2 * u) {
-            VStack(alignment: .leading, spacing: 0) {
-                ZStack {
-                    Circle().fill(.white.opacity(0.2))
-                    Image(systemName: "list.bullet").font(.system(size: 1.6 * u, weight: .bold))
-                }
-                .frame(width: 3.4 * u, height: 3.4 * u)
-                Spacer(minLength: 0)
-                RollingText(text: "\(reminders.items.count)", distance: 3 * u, tracking: 0)
-                    .font(.system(size: 4.4 * u, weight: .bold, design: .rounded))
-                Text(reminders.listName)
-                    .font(.system(size: 1.6 * u, weight: .semibold))
-                    .lineLimit(1)
-            }
-            .frame(width: 10 * u, alignment: .leading)
-
-            VStack(alignment: .leading, spacing: 1.1 * u) {
-                ForEach(reminders.items.prefix(4)) { item in
-                    HStack(alignment: .firstTextBaseline, spacing: 0.9 * u) {
-                        Button { reminders.complete(item) } label: {
-                            Circle()
-                                .strokeBorder(.white.opacity(0.7), lineWidth: 0.18 * u)
-                                .frame(width: 1.6 * u, height: 1.6 * u)
-                                .contentShape(Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Complete \(item.title)")
-                        .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 0.25 * u }
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(item.title).font(.system(size: 1.6 * u)).lineLimit(1)
-                            if let due = item.due {
-                                Text(due, format: .relative(presentation: .named))
-                                    .font(.system(size: 1.2 * u))
-                                    .fontWeight(due < .now ? .semibold : .regular)
-                                    .opacity(due < .now ? 0.9 : 0.55)
-                            }
-                        }
-                    }
-                    .transition(.opacity.combined(with: .move(edge: .leading)))
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    private var chip: some View {
+        ZStack {
+            Circle().fill(.white.opacity(0.2))
+            Image(systemName: "list.bullet").font(.system(size: 1.6 * grid.u, weight: .bold))
         }
-        .padding(1.8 * u)
-        .transition(.opacity)
+        .frame(width: 3.4 * grid.u, height: 3.4 * grid.u)
+    }
+
+    private func count(_ points: CGFloat, weight: Font.Weight = .bold) -> some View {
+        RollingText(text: "\(reminders.items.count)", distance: 3 * grid.u, tracking: 0)
+            .font(.system(size: points * grid.u, weight: weight, design: .rounded))
+    }
+
+    @ViewBuilder private var list: some View {
+        let u = grid.u
+        switch (size, style) {
+        case (.small, 1):
+            VStack(alignment: .leading, spacing: 0) {
+                chip
+                Spacer(minLength: 0)
+                count(7, weight: .light)
+                Text(reminders.listName).font(.system(size: 1.6 * u, weight: .semibold)).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        case (.small, _):
+            VStack(alignment: .leading, spacing: 0) {
+                HStack { chip; Spacer(); count(3.4) }
+                Spacer(minLength: 0)
+                items(2, dates: false)
+            }
+        case (.medium, 1):
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 1.6 * u), GridItem(.flexible())], alignment: .leading, spacing: 1.1 * u) {
+                ForEach(reminders.items.prefix(6)) { row($0, dates: false) }
+            }
+            .frame(maxHeight: .infinity)
+        case (.medium, _):
+            HStack(alignment: .top, spacing: 2 * u) {
+                VStack(alignment: .leading, spacing: 0) {
+                    chip
+                    Spacer(minLength: 0)
+                    count(4.4)
+                    Text(reminders.listName).font(.system(size: 1.6 * u, weight: .semibold)).lineLimit(1)
+                }
+                .frame(width: 10 * u, alignment: .leading)
+                items(4, dates: true)
+            }
+        case (.large, 1):
+            grouped
+        default:
+            VStack(alignment: .leading, spacing: 1.6 * u) {
+                HStack {
+                    Text(reminders.listName).font(.system(size: 2 * u, weight: .semibold)).lineLimit(1)
+                    Spacer()
+                    count(3.2)
+                }
+                items(9, dates: true)
+            }
+        }
+    }
+
+    private func items(_ n: Int, dates: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 1.1 * grid.u) {
+            ForEach(reminders.items.prefix(n)) { row($0, dates: dates) }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// Overdue and today, tomorrow, then later (and undated).
+    private var grouped: some View {
+        let cal = Calendar.current
+        let startOfTomorrow = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: .now))!
+        let dayAfter = cal.date(byAdding: .day, value: 1, to: startOfTomorrow)!
+        let groups: [(String, [ReminderStore.Item])] = [
+            ("TODAY", reminders.items.filter { ($0.due ?? .distantFuture) < startOfTomorrow }),
+            ("TOMORROW", reminders.items.filter { (startOfTomorrow..<dayAfter).contains($0.due ?? .distantFuture) }),
+            ("LATER", reminders.items.filter { ($0.due ?? .distantFuture) >= dayAfter }),
+        ].filter { !$0.1.isEmpty }
+        var left = 8
+        let shown = groups.compactMap { name, list -> (String, [ReminderStore.Item])? in
+            guard left > 0 else { return nil }
+            let part = Array(list.prefix(left))
+            left -= part.count
+            return (name, part)
+        }
+        return VStack(alignment: .leading, spacing: 0.9 * grid.u) {
+            ForEach(shown, id: \.0) { name, list in
+                Text(name).font(.system(size: 1.2 * grid.u, weight: .bold)).tracking(0.08 * grid.u).opacity(0.55)
+                    .padding(.top, name == shown.first?.0 ? 0 : 0.6 * grid.u)
+                ForEach(list) { row($0, dates: false) }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func row(_ item: ReminderStore.Item, dates: Bool) -> some View {
+        let u = grid.u
+        return HStack(alignment: .firstTextBaseline, spacing: 0.9 * u) {
+            Button { reminders.complete(item) } label: {
+                Circle()
+                    .strokeBorder(.white.opacity(0.7), lineWidth: 0.18 * u)
+                    .frame(width: 1.6 * u, height: 1.6 * u)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Complete \(item.title)")
+            .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 0.25 * u }
+            VStack(alignment: .leading, spacing: 0) {
+                Text(item.title).font(.system(size: 1.6 * u)).lineLimit(1)
+                if dates, let due = item.due {
+                    Text(due, format: .relative(presentation: .named))
+                        .font(.system(size: 1.2 * u))
+                        .fontWeight(due < .now ? .semibold : .regular)
+                        .opacity(due < .now ? 0.9 : 0.55)
+                }
+            }
+        }
+        .transition(.opacity.combined(with: .move(edge: .leading)))
     }
 }
 
@@ -212,27 +401,87 @@ struct WorldCity: Hashable {
     }
 }
 
-/// Like the Clock app's World Clock widget: four analog faces, white by day and black by night, with the
-/// city and its offset from here below each.
+/// Like the Clock app's World Clock widget: analog faces or digital times, with each city's offset
+/// from here.
 struct WorldClockCard: View {
     let grid: Grid
+    var size: WidgetSize = .medium
+    var style = 0
     @AppStorage(WorldCity.key) private var raw = WorldCity.defaults
 
     var body: some View {
-        let u = grid.u
-        let cities = Array(WorldCity.load(raw).prefix(4))
+        let cities = Array(WorldCity.load(raw).prefix(size == .small ? (style == 1 ? 3 : 1) : 4))
         TimelineView(.periodic(from: .now, by: 1)) { context in
+            content(cities, context.date)
+        }
+        .padding(1.6 * grid.u)
+        .frame(width: grid.w(size), height: grid.h(size))
+        .glass(grid)
+    }
+
+    @ViewBuilder private func content(_ cities: [WorldCity], _ date: Date) -> some View {
+        let u = grid.u
+        switch (size, style) {
+        case (.small, 1), (.medium, 1):
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2.4 * u), count: size == .small ? 1 : 2),
+                      spacing: (size == .small ? 1.2 : 1.6) * u) {
+                ForEach(cities, id: \.self) { city in
+                    let zone = TimeZone(identifier: city.zone) ?? .current
+                    VStack(alignment: .leading, spacing: 0) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(city.name).font(.system(size: 1.5 * u, weight: .semibold)).lineLimit(1)
+                            Spacer(minLength: 0.4 * u)
+                            Text(Self.time(date, zone)).font(.system(size: (size == .small ? 2 : 2.6) * u, weight: .medium)).monospacedDigit()
+                        }
+                        if size != .small {
+                            Text(Self.offset(zone, at: date)).font(.system(size: 1.1 * u)).opacity(0.6).lineLimit(1)
+                        }
+                    }
+                }
+            }
+            .frame(maxHeight: .infinity)
+        case (.small, _):
+            let city = cities.first ?? WorldCity(name: "Here", zone: TimeZone.current.identifier)
+            VStack(spacing: 0.7 * u) {
+                AnalogFace(date: date, zone: TimeZone(identifier: city.zone) ?? .current, size: 12 * u)
+                Text(city.name).font(.system(size: 1.5 * u, weight: .semibold)).lineLimit(1)
+            }
+        case (.large, 1):
+            VStack(spacing: 0) {
+                ForEach(Array(cities.enumerated()), id: \.element) { i, city in
+                    let zone = TimeZone(identifier: city.zone) ?? .current
+                    if i > 0 { Divider().overlay(.white.opacity(0.15)) }
+                    HStack {
+                        VStack(alignment: .leading, spacing: 0.2 * u) {
+                            Text(city.name).font(.system(size: 1.8 * u, weight: .semibold)).lineLimit(1)
+                            Text(Self.offset(zone, at: date)).font(.system(size: 1.2 * u)).opacity(0.6).lineLimit(1)
+                        }
+                        Spacer()
+                        Text(Self.time(date, zone)).font(.system(size: 5 * u, weight: .medium)).monospacedDigit()
+                    }
+                    .frame(maxHeight: .infinity)
+                }
+            }
+        case (.large, _):
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 1.6 * u) {
+                ForEach(cities, id: \.self) { city in
+                    let zone = TimeZone(identifier: city.zone) ?? .current
+                    VStack(spacing: 0.6 * u) {
+                        AnalogFace(date: date, zone: zone, size: 12.5 * u)
+                        Text(city.name).font(.system(size: 1.6 * u, weight: .semibold)).lineLimit(1)
+                        Text(Self.time(date, zone)).font(.system(size: 1.4 * u)).monospacedDigit().opacity(0.8)
+                    }
+                }
+            }
+        default:
             HStack(spacing: 0) {
                 ForEach(cities, id: \.self) { city in
                     let zone = TimeZone(identifier: city.zone) ?? .current
                     VStack(spacing: 0.7 * u) {
-                        AnalogFace(date: context.date, zone: zone, size: 8.4 * u)
+                        AnalogFace(date: date, zone: zone, size: 8.4 * u)
                         VStack(spacing: 0.1 * u) {
                             Text(city.name).font(.system(size: 1.5 * u, weight: .semibold)).lineLimit(1)
-                            Text(Self.offset(zone, at: context.date))
-                                .font(.system(size: 1.2 * u))
-                                .opacity(0.6)
-                                .lineLimit(1)
+                            Text(Self.offset(zone, at: date)).font(.system(size: 1.2 * u)).opacity(0.6).lineLimit(1)
                         }
                     }
                     .frame(maxWidth: .infinity)
@@ -240,9 +489,13 @@ struct WorldClockCard: View {
             }
             .frame(maxHeight: .infinity)
         }
-        .padding(.horizontal, 1.2 * u)
-        .frame(width: grid.wide, height: grid.s)
-        .glass(grid)
+    }
+
+    /// "23:11" in that city.
+    static func time(_ date: Date, _ zone: TimeZone) -> String {
+        var style = Date.FormatStyle.dateTime.hour(.defaultDigits(amPM: .omitted)).minute()
+        style.timeZone = zone
+        return date.formatted(style)
     }
 
     /// "Today, +0HRS", "Yesterday, −5:30", as the Clock widget writes it.
@@ -260,7 +513,8 @@ struct WorldClockCard: View {
     }
 }
 
-/// A Clock-app style face in black and white: 12 numerals, hour and minute hands, a grey second hand.
+/// A Clock-app style face, see-through: 12 numerals, hour and minute hands, a grey second hand.
+/// Daytime cities get a faint glass fill so day and night still read apart.
 struct AnalogFace: View {
     let date: Date
     let zone: TimeZone
@@ -272,22 +526,21 @@ struct AnalogFace: View {
         let c = calendar.dateComponents([.hour, .minute, .second], from: date)
         let hour = Double(c.hour ?? 0), minute = Double(c.minute ?? 0), second = Double(c.second ?? 0)
         let day = (6..<18).contains(c.hour ?? 0)
-        let ink: Color = day ? .black : .white
         return ZStack {
-            Circle().fill(day ? Color.white : Color.black)
-            Circle().strokeBorder(.white.opacity(day ? 0 : 0.15), lineWidth: 1)
+            Circle().fill(.white.opacity(day ? 0.1 : 0))
+            Circle().strokeBorder(.white.opacity(day ? 0.3 : 0.2), lineWidth: max(1, size * 0.01))
             ForEach(1...12, id: \.self) { n in
                 let a = Double(n) / 12 * 2 * .pi
                 Text("\(n)")
-                    .font(.system(size: size * 0.13, weight: .medium, design: .rounded))
-                    .foregroundStyle(ink)
+                    .font(.system(size: size * 0.13, weight: .medium))
                     .offset(x: sin(a) * size * 0.38, y: -cos(a) * size * 0.38)
             }
-            hand(angle: (hour.truncatingRemainder(dividingBy: 12) + minute / 60) / 12, length: 0.25, width: 0.045, color: ink)
-            hand(angle: (minute + second / 60) / 60, length: 0.38, width: 0.035, color: ink)
-            hand(angle: second / 60, length: 0.42, width: 0.012, color: Color(white: 0.5))
-            Circle().fill(Color(white: 0.5)).frame(width: size * 0.05)
+            hand(angle: (hour.truncatingRemainder(dividingBy: 12) + minute / 60) / 12, length: 0.25, width: 0.045, color: .white)
+            hand(angle: (minute + second / 60) / 60, length: 0.38, width: 0.035, color: .white)
+            hand(angle: second / 60, length: 0.42, width: 0.012, color: Color(white: 0.6))
+            Circle().fill(Color(white: 0.6)).frame(width: size * 0.05)
         }
+        .foregroundStyle(.white)
         .frame(width: size, height: size)
         .accessibilityElement()
         .accessibilityLabel(date.formatted(Date.FormatStyle(date: .omitted, time: .shortened, timeZone: zone)))
@@ -357,42 +610,22 @@ final class FocusTimer: ObservableObject {
     }
 }
 
-/// Like the Clock app's Timer widget, in white: a ring that empties, the time left in the middle.
+/// Like the Clock app's Timer widget, in white: a ring that empties or big digits, the time left.
+/// Click to start or pause.
 struct TimerCard: View {
     @ObservedObject var timer: FocusTimer
     let grid: Grid
+    var size: WidgetSize = .small
+    var style = 0
+    @AppStorage(FocusTimer.minutesKey) private var minutes = 25
 
     var body: some View {
         let u = grid.u
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            let left = timer.left(at: context.date)
-            VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Text(timer.finished ? "Done" : "Focus").font(.system(size: 1.5 * u, weight: .semibold))
-                    Spacer()
-                    Image(systemName: timer.running ? "pause.fill" : "play.fill")
-                        .font(.system(size: 1.3 * u))
-                }
-                Spacer(minLength: 0)
-                ZStack {
-                    Circle().stroke(.white.opacity(0.2), lineWidth: 0.9 * u)
-                    Circle()
-                        .trim(from: 0, to: left / timer.length)
-                        .stroke(.white, style: StrokeStyle(lineWidth: 0.9 * u, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                        .animation(.linear(duration: 1), value: left)
-                    RollingText(text: Duration.seconds(left.rounded(.up)).formatted(.time(pattern: left >= 3600 ? .hourMinuteSecond : .minuteSecond)),
-                                distance: 1.4 * u, tracking: 0)
-                        .font(.system(size: 2.4 * u, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                }
-                .frame(width: 12 * u, height: 12 * u)
-                .frame(maxWidth: .infinity)
-                Spacer(minLength: 0)
-            }
+            content(timer.left(at: context.date), context.date)
         }
         .padding(1.8 * u)
-        .frame(width: grid.cw, height: grid.s)
+        .frame(width: grid.w(size), height: grid.h(size))
         .glass(grid)
         .overlay {
             // When time is up: a slow white pulse around the card, for when the sound is off.
@@ -411,6 +644,100 @@ struct TimerCard: View {
         .contextMenu { Button("Reset Timer") { timer.reset() } }
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(timer.running ? "Pause focus timer" : "Start focus timer")
+    }
+
+    private func text(_ left: TimeInterval) -> String {
+        Duration.seconds(left.rounded(.up)).formatted(.time(pattern: left >= 3600 ? .hourMinuteSecond : .minuteSecond))
+    }
+
+    private var title: some View {
+        Text(timer.finished ? "Done" : "Focus").font(.system(size: 1.5 * grid.u, weight: .semibold))
+    }
+
+    private var playPause: some View {
+        Image(systemName: timer.running ? "pause.fill" : "play.fill").font(.system(size: 1.3 * grid.u))
+    }
+
+    /// "ends 11:26" while running.
+    @ViewBuilder private func ends(_ left: TimeInterval, _ now: Date) -> some View {
+        if timer.running {
+            Text("ends " + (now + left).formatted(date: .omitted, time: .shortened))
+                .font(.system(size: 1.3 * grid.u)).opacity(0.6)
+        }
+    }
+
+    private func ring(_ left: TimeInterval, side: CGFloat, font: CGFloat) -> some View {
+        let u = grid.u
+        return ZStack {
+            Circle().stroke(.white.opacity(0.2), lineWidth: 0.9 * u)
+            Circle()
+                .trim(from: 0, to: left / timer.length)
+                .stroke(.white, style: StrokeStyle(lineWidth: 0.9 * u, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .animation(.linear(duration: 1), value: left)
+            RollingText(text: text(left), distance: 1.4 * u, tracking: 0)
+                .font(.system(size: font * u, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+        }
+        .frame(width: side * u, height: side * u)
+    }
+
+    @ViewBuilder private func content(_ left: TimeInterval, _ now: Date) -> some View {
+        let u = grid.u
+        switch (size, style) {
+        case (.small, 1):
+            let parts = text(left).split(separator: ":").map(String.init)
+            VStack(alignment: .leading, spacing: 0) {
+                HStack { title; Spacer(); playPause }
+                Spacer(minLength: 0)
+                VStack(alignment: .leading, spacing: -1 * u) {
+                    ForEach(parts.suffix(2).indices, id: \.self) { i in
+                        RollingText(text: parts.suffix(2)[i], distance: 2 * u, tracking: -0.2 * u)
+                            .font(.system(size: 5.6 * u, weight: .medium))
+                            .monospacedDigit()
+                    }
+                }
+                Bar(fraction: left / timer.length, height: 0.45 * u).padding(.top, 1 * u)
+            }
+        case (.small, _):
+            VStack(alignment: .leading, spacing: 0) {
+                HStack { title; Spacer(); playPause }
+                Spacer(minLength: 0)
+                ring(left, side: 12, font: 2.4).frame(maxWidth: .infinity)
+                Spacer(minLength: 0)
+            }
+        case (_, 1):
+            VStack(alignment: .leading, spacing: 0) {
+                HStack { title; Spacer(); ends(left, now) }
+                Spacer(minLength: 0)
+                RollingText(text: text(left), distance: 3 * u, tracking: -0.3 * u)
+                    .font(.system(size: 8.5 * u, weight: .medium))
+                    .monospacedDigit()
+                Bar(fraction: left / timer.length, height: 0.45 * u).padding(.top, 1 * u)
+            }
+        default:
+            HStack(spacing: 2.6 * u) {
+                ring(left, side: 12.5, font: 2.6)
+                VStack(alignment: .leading, spacing: 1.2 * u) {
+                    HStack(spacing: 0.8 * u) { title; playPause }
+                    HStack(spacing: 0.6 * u) {
+                        ForEach([15, 25, 45], id: \.self) { m in
+                            Button { minutes = m; timer.reset() } label: {
+                                Text("\(m)")
+                                    .font(.system(size: 1.4 * u, weight: .semibold))
+                                    .padding(.horizontal, 1 * u)
+                                    .padding(.vertical, 0.5 * u)
+                                    .background(Capsule().fill(.white.opacity(minutes == m ? 0.3 : 0.12)))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("\(m) minutes")
+                        }
+                    }
+                    ends(left, now)
+                }
+                Spacer(minLength: 0)
+            }
+        }
     }
 }
 

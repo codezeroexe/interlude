@@ -1,56 +1,143 @@
 import SwiftUI
 
-/// Medium (2:1) card: artwork, title, artist, progress and Mac-style controls.
+/// Artwork, title, artist and Mac-style controls. No seek bar in any style.
+/// Small: fade, pill, thumbnail. Medium: classic, fade, pill. Large: fade, panel.
 struct NowPlayingCard: View {
     @ObservedObject var nowPlaying: NowPlaying
-    @StateObject private var hover = HoverState()
     let grid: Grid
+    var size: WidgetSize = .medium
+    var style = 0
 
     var body: some View {
         if let track = nowPlaying.track {
-            let art = grid.s - 3.6 * grid.u
-            HStack(spacing: 2 * grid.u) {
-                artwork
-                    .frame(width: art, height: art)
-                    .clipShape(RoundedRectangle(cornerRadius: 1.8 * grid.u, style: .continuous))
-                    .id(nowPlaying.artwork.map(ObjectIdentifier.init)) // crossfade when the cover itself changes
-                    .transition(.opacity)
-
-                VStack(alignment: .leading, spacing: 0) {
-                    Spacer(minLength: 0)
-                    Text("NOW PLAYING")
-                        .font(.system(size: 1.35 * grid.u, weight: .semibold))
-                        .tracking(0.08 * grid.u)
-                        .opacity(0.55)
-                    Marquee(text: track.title, u: grid.u)
-                        .font(.system(size: 2.4 * grid.u, weight: .semibold))
-                        .padding(.top, 0.3 * grid.u)
-                    Marquee(text: track.artist, u: grid.u)
-                        .font(.system(size: 2.1 * grid.u))
-                        .opacity(0.8)
-                    progress(track)
-                        .padding(.top, 1 * grid.u)
-                    if hover.on {
-                        HStack {
-                            Text(Self.time(track.position))
-                            Spacer()
-                            Text("-" + Self.time(track.duration - track.position))
-                        }
-                        .font(.system(size: 1.25 * grid.u))
-                        .monospacedDigit()
-                        .opacity(0.6)
-                        .padding(.top, 0.4 * grid.u)
-                        .transition(.opacity)
-                    }
-                }
-                .overlay(alignment: .topTrailing) { controls(track) }
-            }
-            .animation(.easeInOut(duration: 0.6), value: track.id)
-            .padding(1.8 * grid.u)
-            .frame(width: grid.wide, height: grid.s)
-            .glass(grid)
-            .onHover { on in withAnimation(.easeOut(duration: 0.25)) { hover.on = on } }
+            let shape = RoundedRectangle(cornerRadius: grid.radius, style: .continuous)
+            content(track)
+                .animation(.easeInOut(duration: 0.6), value: track.id)
+                .frame(width: grid.w(size), height: grid.h(size))
+                .clipShape(shape) // covers that fill the card stop at its rounded edge
+                .glass(grid)
         }
+    }
+
+    @ViewBuilder private func content(_ track: Track) -> some View {
+        let u = grid.u
+        switch (size, style) {
+        case (.small, 1):
+            ZStack(alignment: .bottom) {
+                cover
+                controls(track, 1.6).padding(.horizontal, 1.4 * u).padding(.vertical, 0.8 * u).glass(grid, capsule: true)
+                    .padding(1 * u)
+            }
+        case (.small, 2):
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .top) {
+                    artwork.frame(width: 6 * u, height: 6 * u)
+                        .clipShape(RoundedRectangle(cornerRadius: 1.2 * u, style: .continuous))
+                    Spacer()
+                    Image(systemName: "music.note").font(.system(size: 1.6 * u))
+                }
+                titles(track, title: 1.6, artist: 1.3, label: false).padding(.top, 1 * u)
+                Spacer(minLength: 0)
+                HStack { control("backward.fill", .previous); Spacer(); playPause(track); Spacer(); control("forward.fill", .next) }
+                    .font(.system(size: 1.9 * u))
+            }
+            .padding(1.6 * u)
+        case (.small, _), (.large, 0):
+            let big = size == .large
+            ZStack(alignment: .bottom) {
+                cover.mask(LinearGradient(stops: [.init(color: .black, location: 0.35), .init(color: .clear, location: 0.92)],
+                                          startPoint: .top, endPoint: .bottom))
+                VStack(spacing: 0.3 * u) {
+                    centred(track, title: big ? 2.4 : 1.7, artist: big ? 1.6 : 1.3)
+                    controls(track, big ? 2 : 1.5).padding(.top, (big ? 1.2 : 0.7) * u)
+                }
+                .padding((big ? 2.2 : 1.4) * u)
+            }
+        case (.large, _):
+            ZStack(alignment: .bottom) {
+                cover
+                VStack(spacing: 1 * u) {
+                    centred(track, title: 2, artist: 1.6)
+                    controls(track, 2)
+                }
+                .padding(1.6 * u)
+                .frame(maxWidth: .infinity)
+                .glass(grid)
+                .padding(1.6 * u)
+            }
+        case (.medium, 1):
+            HStack(spacing: 0) {
+                Color.clear.frame(width: 1.1 * grid.s, height: grid.s).overlay { artwork }.clipped()
+                    .mask(LinearGradient(stops: [.init(color: .black, location: 0.55), .init(color: .clear, location: 1)],
+                                         startPoint: .leading, endPoint: .trailing))
+                classicText(track).padding(1.8 * u).padding(.leading, -3 * u)
+            }
+        case (.medium, 2):
+            ZStack(alignment: .bottom) {
+                cover
+                HStack(spacing: 1.2 * u) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(track.title).font(.system(size: 1.6 * u, weight: .semibold))
+                        Text(track.artist).font(.system(size: 1.3 * u)).opacity(0.75)
+                    }
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    controls(track, 1.6)
+                }
+                .padding(.leading, 2 * u)
+                .padding(.trailing, 1.4 * u)
+                .padding(.vertical, 0.9 * u)
+                .glass(grid, capsule: true)
+                .padding(1.2 * u)
+            }
+        default:
+            let art = grid.s - 3.6 * u
+            HStack(spacing: 2 * u) {
+                artwork.frame(width: art, height: art)
+                    .clipShape(RoundedRectangle(cornerRadius: 1.8 * u, style: .continuous))
+                classicText(track)
+            }
+            .padding(1.8 * u)
+        }
+    }
+
+    /// Controls top right; "NOW PLAYING", title and artist bottom left.
+    private func classicText(_ track: Track) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Spacer(minLength: 0)
+            titles(track, title: 2.4, artist: 2.1, label: true)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .overlay(alignment: .topTrailing) { controls(track, 2.2) }
+    }
+
+    private func titles(_ track: Track, title: CGFloat, artist: CGFloat, label: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if label {
+                Text("NOW PLAYING")
+                    .font(.system(size: 1.35 * grid.u, weight: .semibold))
+                    .tracking(0.08 * grid.u)
+                    .opacity(0.55)
+                    .padding(.bottom, 0.3 * grid.u)
+            }
+            Marquee(text: track.title, u: grid.u).font(.system(size: title * grid.u, weight: .semibold))
+            Marquee(text: track.artist, u: grid.u).font(.system(size: artist * grid.u)).opacity(0.8)
+        }
+    }
+
+    private func centred(_ track: Track, title: CGFloat, artist: CGFloat) -> some View {
+        VStack(spacing: 0.1 * grid.u) {
+            Text(track.title).font(.system(size: title * grid.u, weight: .semibold))
+            Text(track.artist).font(.system(size: artist * grid.u)).opacity(0.75)
+        }
+        .lineLimit(1)
+        .multilineTextAlignment(.center)
+    }
+
+    /// The cover filling the card.
+    private var cover: some View {
+        // Overlay on a clear fill, so a square cover on a wide card is cropped, not stretching the card.
+        Color.clear.overlay { artwork }.clipped()
     }
 
     /// When on, the cover is printed into the glass: it keeps only its light and dark, takes its colour
@@ -58,36 +145,33 @@ struct NowPlayingCard: View {
     @AppStorage("monochromeArtwork") private var monochrome = true
 
     @ViewBuilder private var artwork: some View {
-        if let image = nowPlaying.artwork {
-            Image(nsImage: image).resizable().scaledToFill()
-                .blendMode(monochrome ? .luminosity : .normal)
-                .opacity(monochrome ? 0.6 : 1)
-                .animation(.smooth(duration: 0.6), value: monochrome)
-        } else {
-            Rectangle().fill(.white.opacity(0.12))
-                .overlay { Image(systemName: "music.note").font(.system(size: 4 * grid.u)).opacity(0.6) }
-        }
-    }
-
-    private func progress(_ track: Track) -> some View {
-        let fraction = track.duration > 0 ? min(1, track.position / track.duration) : 0
-        return Capsule().fill(.white.opacity(0.25))
-            .frame(height: 0.4 * grid.u)
-            .overlay(alignment: .leading) {
-                GeometryReader { geo in
-                    Capsule().fill(.white).frame(width: geo.size.width * fraction)
-                }
+        Group {
+            if let image = nowPlaying.artwork {
+                Image(nsImage: image).resizable().scaledToFill()
+                    .blendMode(monochrome ? .luminosity : .normal)
+                    .opacity(monochrome ? 0.6 : 1)
+                    .animation(.smooth(duration: 0.6), value: monochrome)
+            } else {
+                Rectangle().fill(.white.opacity(0.12))
+                    .overlay { Image(systemName: "music.note").font(.system(size: 4 * grid.u)).opacity(0.6) }
             }
-            .animation(.linear(duration: 1), value: fraction)
+        }
+        .id(nowPlaying.artwork.map(ObjectIdentifier.init)) // crossfade when the cover itself changes
+        .transition(.opacity)
     }
 
-    private func controls(_ track: Track) -> some View {
-        HStack(spacing: 1.2 * grid.u) {
+    /// Plain symbols, no circles behind them.
+    private func controls(_ track: Track, _ points: CGFloat) -> some View {
+        HStack(spacing: points * 0.6 * grid.u) {
             control("backward.fill", .previous)
-            control(track.playing ? "pause.fill" : "play.fill", .playPause)
+            playPause(track)
             control("forward.fill", .next)
         }
-        .font(.system(size: 2.2 * grid.u))
+        .font(.system(size: points * grid.u))
+    }
+
+    private func playPause(_ track: Track) -> some View {
+        control(track.playing ? "pause.fill" : "play.fill", .playPause)
     }
 
     private func control(_ symbol: String, _ command: NowPlaying.Command) -> some View {
@@ -96,13 +180,10 @@ struct NowPlayingCard: View {
         }
         .buttonStyle(.plain)
     }
-
-    private static func time(_ seconds: Double) -> String {
-        Duration.seconds(max(0, seconds)).formatted(.time(pattern: .minuteSecond))
-    }
 }
 
 final class HoverState: ObservableObject {
+
     @Published var on = false
 }
 

@@ -5,8 +5,48 @@ enum Widget: String, CaseIterable, Identifiable {
     case battery, calendar, nowPlaying, clock, weather, reminders, worldClock, timer
 
     var id: Self { self }
-    /// Wide cards cover two cells side by side; small ones cover one.
-    var wide: Bool { ![.battery, .calendar, .timer].contains(self) }
+
+    /// The sizes this widget comes in. No widget is tall and narrow (1×2).
+    var sizes: [WidgetSize] {
+        switch self {
+        case .clock: [.small, .medium, .large, .extraLarge]
+        case .battery, .timer: [.small, .medium]
+        default: [.small, .medium, .large]
+        }
+    }
+
+    /// The size a widget gets when added, and for layouts saved before widgets had sizes.
+    var defaultSize: WidgetSize { [.battery, .calendar, .timer].contains(self) ? .small : .medium }
+
+    /// Names of the styles this widget has at a size. Style 0 is the first.
+    func styles(_ size: WidgetSize) -> [String] {
+        switch (self, size) {
+        case (.clock, .small): ["Stacked", "Analog"]
+        case (.clock, .medium): ["Classic", "Centred"]
+        case (.clock, .large): ["Stacked", "Analog"]
+        case (.clock, .extraLarge): ["Big", "With Info"]
+        case (.weather, .small): ["Now", "Symbol"]
+        case (.weather, .medium): ["Hours", "Days"]
+        case (.weather, .large): ["Forecast", "Details"]
+        case (.calendar, .small): ["Month", "Next Event"]
+        case (.calendar, .medium): ["Today", "Month"]
+        case (.calendar, .large): ["Month", "Agenda"]
+        case (.nowPlaying, .small): ["Fade", "Pill", "Thumbnail"]
+        case (.nowPlaying, .medium): ["Classic", "Fade", "Pill"]
+        case (.nowPlaying, .large): ["Fade", "Panel"]
+        case (.battery, .small): ["This Mac", "Devices"]
+        case (.battery, .medium): ["Rings", "List"]
+        case (.reminders, .small): ["List", "Count"]
+        case (.reminders, .medium): ["Classic", "Columns"]
+        case (.reminders, .large): ["List", "By Day"]
+        case (.worldClock, .small): ["Analog", "Digital"]
+        case (.worldClock, .medium): ["Analog", "Digital"]
+        case (.worldClock, .large): ["Analog", "Digital"]
+        case (.timer, .small): ["Ring", "Digits"]
+        case (.timer, .medium): ["Ring", "Digits"]
+        default: ["Default"]
+        }
+    }
 
     var name: String {
         switch self {
@@ -35,6 +75,24 @@ enum Widget: String, CaseIterable, Identifiable {
     }
 }
 
+/// How many cells a widget covers: columns × rows.
+enum WidgetSize: String, CaseIterable, Identifiable {
+    case small = "S", medium = "M", large = "L", extraLarge = "XL"
+
+    var id: Self { self }
+    var cols: Int { switch self { case .small: 1; case .medium, .large: 2; case .extraLarge: 4 } }
+    var rows: Int { self == .small || self == .medium ? 1 : 2 }
+
+    var name: String {
+        switch self {
+        case .small: "Small"
+        case .medium: "Medium"
+        case .large: "Large"
+        case .extraLarge: "Extra Large"
+        }
+    }
+}
+
 /// Grid cell: column from the left, row 0–2 from the top.
 struct Cell: Hashable {
     var col: Int
@@ -42,32 +100,48 @@ struct Cell: Hashable {
 }
 
 /// Where each shown widget sits on the grid that covers the whole screen (3 rows; the column count
-/// comes from the screen's shape, see `Grid`). Widgets not in `origins` are on the shelf, not shown.
-/// A wide card covers two cells side by side. The pills go in the free space the widgets leave.
-/// Stored as text, e.g. "5|battery@3,0;calendar@4,0;nowPlaying@3,1;clock@3,2".
+/// comes from the screen's shape, see `Grid`), and its size and style. Widgets not in `origins` are on
+/// the shelf, not shown. The pills go in the free space the widgets leave.
+/// Stored as text, e.g. "5|battery@3,0;clock@3,1,L,1" (column, row, size, style). Size and style are
+/// optional, so layouts saved before widgets had sizes still load.
 struct WidgetLayout: Equatable, RawRepresentable {
-    static let rows = 3
-
     let columns: Int
+    let rows: Int
     private(set) var origins: [Widget: Cell]
+    private(set) var sizes: [Widget: WidgetSize] = [:]
+    private(set) var styles: [Widget: Int] = [:]
 
-    init(columns: Int, origins: [Widget: Cell]) {
+    init(columns: Int, rows: Int = 3, origins: [Widget: Cell]) {
         self.columns = columns
+        self.rows = rows
         self.origins = origins
     }
 
     /// Battery and calendar on top, Now Playing and the clock below, all against the right edge.
-    static func standard(columns n: Int) -> WidgetLayout {
-        WidgetLayout(columns: n, origins: [
-            .battery: Cell(col: n - 2, row: 0), .calendar: Cell(col: n - 1, row: 0),
-            .nowPlaying: Cell(col: n - 2, row: 1), .clock: Cell(col: n - 2, row: 2),
-        ])
+    /// On other grid sizes: the same four, each at the free spot nearest the top-right.
+    static func standard(columns n: Int, rows: Int = 3) -> WidgetLayout {
+        if rows == 3, n >= 2 {
+            return WidgetLayout(columns: n, origins: [
+                .battery: Cell(col: n - 2, row: 0), .calendar: Cell(col: n - 1, row: 0),
+                .nowPlaying: Cell(col: n - 2, row: 1), .clock: Cell(col: n - 2, row: 2),
+            ])
+        }
+        var layout = WidgetLayout(columns: n, rows: rows, origins: [:])
+        for w in [Widget.clock, .nowPlaying, .battery, .calendar] {
+            if let spot = layout.nearestSpot(for: w, to: Cell(col: n - 1, row: 0)) { layout.origins[w] = spot }
+        }
+        return layout
     }
 
-    /// This layout if it was made for a screen with this many columns, otherwise the default.
-    func fitted(to columns: Int) -> WidgetLayout { self.columns == columns ? self : .standard(columns: columns) }
+    /// This layout if it was made for a grid of this shape, otherwise the default.
+    func fitted(to columns: Int, rows: Int = 3) -> WidgetLayout {
+        self.columns == columns && self.rows == rows ? self : .standard(columns: columns, rows: rows)
+    }
 
-    var allCells: [Cell] { (0..<Self.rows).flatMap { r in (0..<columns).map { Cell(col: $0, row: r) } } }
+    /// Whether a size fits on this grid at all.
+    func allows(_ size: WidgetSize) -> Bool { size.cols <= columns && size.rows <= rows }
+
+    var allCells: [Cell] { (0..<rows).flatMap { r in (0..<columns).map { Cell(col: $0, row: r) } } }
 
     /// Shown widgets, in a fixed order.
     var placed: [Widget] { Widget.allCases.filter { origins[$0] != nil } }
@@ -77,81 +151,132 @@ struct WidgetLayout: Equatable, RawRepresentable {
     /// Rejects anything off the grid or overlapping, so a bad or old saved value falls back to the default.
     init?(rawValue: String) {
         let halves = rawValue.split(separator: "|", omittingEmptySubsequences: false)
-        guard halves.count == 2, let columns = Int(halves[0]), (3...10).contains(columns) else { return nil }
-        var origins: [Widget: Cell] = [:]
+        guard halves.count == 2 else { return nil }
+        // "5|…" (3 rows, from before the grid size setting) or "5x4|…".
+        let shape = halves[0].split(separator: "x").compactMap { Int($0) }
+        guard let columns = shape.first, (2...10).contains(columns) else { return nil }
+        let rows = shape.count > 1 ? shape[1] : 3
+        guard (2...4).contains(rows) else { return nil }
+        var layout = WidgetLayout(columns: columns, rows: rows, origins: [:])
         for part in halves[1].split(separator: ";") {
             let bits = part.split(separator: "@")
             guard bits.count == 2, let w = Widget(rawValue: String(bits[0])) else { return nil }
-            let xy = bits[1].split(separator: ",").compactMap { Int($0) }
-            guard xy.count == 2 else { return nil }
-            origins[w] = Cell(col: xy[0], row: xy[1])
+            let fields = bits[1].split(separator: ",").map(String.init)
+            guard fields.count >= 2, let col = Int(fields[0]), let row = Int(fields[1]) else { return nil }
+            layout.origins[w] = Cell(col: col, row: row)
+            if fields.count >= 3 {
+                guard let size = WidgetSize(rawValue: fields[2]), w.sizes.contains(size) else { return nil }
+                layout.sizes[w] = size
+            }
+            if fields.count >= 4, let style = Int(fields[3]) { layout.styles[w] = style }
         }
-        let layout = WidgetLayout(columns: columns, origins: origins)
-        guard origins.allSatisfy({ layout.fits($0.key, at: $0.value) }) else { return nil }
+        guard layout.origins.allSatisfy({ layout.fits($0.key, at: $0.value, size: layout.size(of: $0.key)) }) else { return nil }
         self = layout
     }
 
     var rawValue: String {
-        "\(columns)|" + placed.map { w in "\(w.rawValue)@\(origins[w]!.col),\(origins[w]!.row)" }.joined(separator: ";")
+        (rows == 3 ? "\(columns)|" : "\(columns)x\(rows)|") + placed.map { w in
+            let o = origins[w]!
+            return "\(w.rawValue)@\(o.col),\(o.row),\(size(of: w).rawValue),\(style(of: w))"
+        }.joined(separator: ";")
     }
 
     func origin(of widget: Widget) -> Cell? { origins[widget] }
+    func size(of widget: Widget) -> WidgetSize { sizes[widget] ?? widget.defaultSize }
+    /// The chosen style, kept in range for the widget's current size.
+    func style(of widget: Widget) -> Int { min(styles[widget] ?? 0, widget.styles(size(of: widget)).count - 1) }
 
-    static func cells(_ widget: Widget, at origin: Cell) -> [Cell] {
-        widget.wide ? [origin, Cell(col: origin.col + 1, row: origin.row)] : [origin]
+    static func cells(at origin: Cell, size: WidgetSize) -> [Cell] {
+        (0..<size.rows).flatMap { r in (0..<size.cols).map { Cell(col: origin.col + $0, row: origin.row + r) } }
+    }
+
+    func cells(_ widget: Widget) -> [Cell] {
+        origins[widget].map { Self.cells(at: $0, size: size(of: widget)) } ?? []
     }
 
     /// The widget covering a cell, if any.
     func occupant(of cell: Cell) -> Widget? {
-        origins.first { Self.cells($0.key, at: $0.value).contains(cell) }?.key
+        placed.first { cells($0).contains(cell) }
+    }
+
+    private func onGrid(_ cells: [Cell]) -> Bool {
+        cells.allSatisfy { (0..<rows).contains($0.row) && (0..<columns).contains($0.col) }
     }
 
     /// Wholly on the grid and not overlapping any other widget.
-    private func fits(_ widget: Widget, at origin: Cell) -> Bool {
-        let mine = Self.cells(widget, at: origin)
-        guard mine.allSatisfy({ (0..<Self.rows).contains($0.row) && (0..<columns).contains($0.col) }) else { return false }
-        return origins.allSatisfy { other, o in other == widget || Set(mine).isDisjoint(with: Self.cells(other, at: o)) }
+    private func fits(_ widget: Widget, at origin: Cell, size: WidgetSize) -> Bool {
+        let mine = Self.cells(at: origin, size: size)
+        guard onGrid(mine) else { return false }
+        return placed.allSatisfy { $0 == widget || Set(mine).isDisjoint(with: cells($0)) }
     }
 
-    /// Where a widget dropped on `cell` lands: a wide card dropped on the last column shifts left one.
-    func landing(_ widget: Widget, on cell: Cell) -> Cell {
-        widget.wide ? Cell(col: min(cell.col, columns - 2), row: cell.row) : cell
+    /// Where a widget dropped on `cell` lands: shifted left and up as needed to stay on the grid.
+    func landing(_ widget: Widget, on cell: Cell) -> Cell { clamp(cell, size(of: widget)) }
+
+    private func clamp(_ cell: Cell, _ size: WidgetSize) -> Cell {
+        Cell(col: max(0, min(cell.col, columns - size.cols)), row: max(0, min(cell.row, rows - size.rows)))
     }
 
     /// Nearest free spot for a widget, or nil if it fits nowhere.
     private func nearestSpot(for widget: Widget, to cell: Cell) -> Cell? {
-        allCells.sorted { abs($0.col - cell.col) + abs($0.row - cell.row) < abs($1.col - cell.col) + abs($1.row - cell.row) }
-            .first { fits(widget, at: $0) }
+        let size = size(of: widget)
+        return allCells.sorted { abs($0.col - cell.col) + abs($0.row - cell.row) < abs($1.col - cell.col) + abs($1.row - cell.row) }
+            .first { fits(widget, at: $0, size: size) }
     }
 
-    /// Moves a widget (from the grid or the shelf) to a cell. Widgets in the way move into the space it
-    /// left (keeping their offset, so two widgets trade places), else to the nearest free spot, else to
-    /// the shelf. Returns false if nothing changed.
-    @discardableResult
-    mutating func move(_ widget: Widget, to cell: Cell) -> Bool {
-        let target = landing(widget, on: cell)
+    /// Puts a widget at a spot with a size. Widgets in the way move into the space it left (keeping
+    /// their offset, so two widgets trade places), else to the nearest free spot, else to the shelf.
+    private mutating func place(_ widget: Widget, at target: Cell, size: WidgetSize) {
         let old = origins[widget]
-        let covered = Set(Self.cells(widget, at: target))
-        guard target != old, covered.allSatisfy({ (0..<Self.rows).contains($0.row) && (0..<columns).contains($0.col) })
-        else { return false }
-        let displaced = placed.filter { $0 != widget && !covered.isDisjoint(with: Self.cells($0, at: origins[$0]!)) }
-        var next = WidgetLayout(columns: columns, origins: origins.filter { !displaced.contains($0.key) })
+        let covered = Set(Self.cells(at: target, size: size))
+        let displaced = placed.filter { $0 != widget && !covered.isDisjoint(with: cells($0)) }
+        var next = self
+        for d in displaced { next.origins[d] = nil }
         next.origins[widget] = target
+        next.sizes[widget] = size
         for d in displaced {
             let o = origins[d]!
             let shifted = old.map { Cell(col: o.col + $0.col - target.col, row: o.row + $0.row - target.row) } ?? o
             next.origins[d] = next.nearestSpot(for: d, to: shifted)
         }
         self = next
+    }
+
+    /// Moves a widget (from the grid or the shelf) to a cell. Returns false if nothing changed.
+    @discardableResult
+    mutating func move(_ widget: Widget, to cell: Cell) -> Bool {
+        let target = landing(widget, on: cell)
+        guard target != origins[widget] else { return false }
+        place(widget, at: target, size: size(of: widget))
         return true
     }
 
-    /// Puts a shelf widget on the grid at the free spot nearest the top-left. False if there's no room.
+    /// Changes a widget's size, keeping its top-left corner where it can. Widgets in the way move aside.
+    @discardableResult
+    mutating func resize(_ widget: Widget, to size: WidgetSize) -> Bool {
+        guard widget.sizes.contains(size), allows(size), size != self.size(of: widget) else { return false }
+        guard let o = origins[widget] else { sizes[widget] = size; return true }
+        place(widget, at: clamp(o, size), size: size)
+        return true
+    }
+
+    mutating func setStyle(_ widget: Widget, _ style: Int) { styles[widget] = style }
+
+    /// Puts a shelf widget on the grid at the free spot nearest the top-left, trying smaller sizes if
+    /// its own doesn't fit. False if there's no room.
     @discardableResult
     mutating func add(_ widget: Widget) -> Bool {
-        guard origins[widget] == nil, let spot = nearestSpot(for: widget, to: Cell(col: 0, row: 0)) else { return false }
-        origins[widget] = spot
-        return true
+        guard origins[widget] == nil else { return false }
+        let tries = [size(of: widget)] + widget.sizes.filter { $0.cols * $0.rows < size(of: widget).cols * size(of: widget).rows }.reversed()
+        for size in tries where allows(size) {
+            sizes[widget] = size
+            if let spot = nearestSpot(for: widget, to: Cell(col: 0, row: 0)) {
+                origins[widget] = spot
+                return true
+            }
+        }
+        sizes[widget] = tries.first
+        return false
     }
 
     /// Takes a widget off the screen, onto the shelf.
@@ -167,7 +292,7 @@ struct WidgetLayout: Equatable, RawRepresentable {
     /// Where the pills go: the longest run of free cells in the top row, else the bottom row,
     /// else the middle one. Nil only if every cell is taken.
     var pillsRun: (row: Int, cols: ClosedRange<Int>)? {
-        for row in [0, Self.rows - 1, 1] {
+        for row in [0, rows - 1] + Array(1..<max(1, rows - 1)) {
             var best: ClosedRange<Int>?
             var start: Int?
             for col in 0...columns {
@@ -217,7 +342,7 @@ extension Grid {
         let left = x(run.cols.lowerBound)
         let width = x(run.cols.upperBound) + cw - left
         let trailing = run.cols.upperBound == layout.columns - 1 && run.cols.lowerBound > 0
-        let bottom = run.row == WidgetLayout.rows - 1
+        let bottom = run.row == layout.rows - 1
         let alignment: Alignment = switch (bottom, trailing) {
         case (false, false): .topLeading
         case (false, true): .topTrailing
@@ -233,25 +358,28 @@ extension Grid {
 /// The whole screen in miniature: drag widgets between the grid and the shelf below it.
 /// One layout per situation (Standard, Music, Night).
 struct LayoutSettings: View {
+    let model: OverlayModel
     @AppStorage("settingsLayoutProfile") private var profile = LayoutProfile.standard
+    @AppStorage(GridSize.key) private var gridRows = 3
 
     var body: some View {
-        Form {
-            Section {
-                Picker("Layout", selection: $profile) {
-                    ForEach(LayoutProfile.allCases) { Text($0.name).tag($0) }
+        SettingsPage {
+            SettingsGroup(footer: "Changing the grid size starts each layout again from the default.") {
+                SettingsRow(title: "Grid size", subtitle: "Fewer rows make every card bigger") {
+                    Segmented(selection: $gridRows, choices: GridSize.choices.map { Choice(GridSize.name($0), $0) })
                 }
-                .pickerStyle(.segmented)
-                ProfileToggle(profile: profile)
-            } footer: {
-                Text(profile == .standard
-                     ? "Shown unless a Music or Night layout applies."
-                     : profile == .music ? "Shown while music plays." : "Shown while night mode is on.")
-                    .foregroundStyle(.secondary)
             }
-            ProfileEditor(profile: profile).id(profile)
+            .padding(.top, 6)
+            SettingsGroup(footer: profile == .standard
+                          ? "Shown unless a Music or Night layout applies."
+                          : profile == .music ? "Shown while music plays." : "Shown while night mode is on.") {
+                SettingsRow(title: "Layout") {
+                    Segmented(selection: $profile, choices: LayoutProfile.allCases.map { Choice($0.name, $0) })
+                }
+                ProfileToggle(profile: profile)
+            }
+            ProfileEditor(model: model, profile: profile).id(profile)
         }
-        .formStyle(.grouped)
     }
 }
 
@@ -266,16 +394,20 @@ private struct ProfileToggle: View {
 
     var body: some View {
         if profile != .standard {
-            Toggle(profile == .music ? "Use a different layout while music plays" : "Use a different layout at night", isOn: $on)
+            let title = profile == .music ? "Use a different layout while music plays" : "Use a different layout at night"
+            SettingsRow(title: title) { Toggle(title, isOn: $on).labelsHidden() }
         }
     }
 }
 
 private struct ProfileEditor: View {
+    let model: OverlayModel
     let profile: LayoutProfile
     @AppStorage private var stored: WidgetLayout
+    @AppStorage(GridSize.key) private var gridRows = 3
 
-    init(profile: LayoutProfile) {
+    init(model: OverlayModel, profile: LayoutProfile) {
+        self.model = model
         self.profile = profile
         _stored = AppStorage(wrappedValue: WidgetLayout.standard(columns: 5), profile.key)
     }
@@ -284,29 +416,33 @@ private struct ProfileEditor: View {
         // Same shape as the screen standby runs on, so the grid has the same columns. The picture
         // grows with the window.
         let screen = NSScreen.main?.frame.size ?? CGSize(width: 1512, height: 982)
-        let columns = Grid(size: screen).columns
-        let layout = Binding { stored.fitted(to: columns) } set: { stored = $0 }
-        let standard = WidgetLayout.standard(columns: columns)
-        Section {
+        let columns = Grid(size: screen, rows: gridRows).columns
+        let layout = Binding { stored.fitted(to: columns, rows: gridRows) } set: { stored = $0 }
+        let standard = WidgetLayout.standard(columns: columns, rows: gridRows)
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Screen")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 10)
             GeometryReader { geo in
-                ScreenPreview(layout: layout, grid: Grid(size: CGSize(width: geo.size.width, height: geo.size.width * screen.height / screen.width)))
+                ScreenPreview(model: model, layout: layout,
+                              grid: Grid(size: CGSize(width: geo.size.width, height: geo.size.width * screen.height / screen.width), rows: gridRows))
             }
             .aspectRatio(screen.width / screen.height, contentMode: .fit)
-            .listRowInsets(EdgeInsets())
-        } footer: {
-            Text("Drag a widget anywhere on the screen; widgets in the way swap places with it. Click − to remove a widget. Notification and calendar pills fill the space the widgets leave free.")
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            Text("Drag a card to move it; cards in the way swap places. Click a card to change its size and style, or − to remove it.")
+                .font(.system(size: 12))
                 .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
         }
-        Section {
-            Gallery(layout: layout)
-        } header: {
-            Text("Add Widgets")
-        } footer: {
-            Text("Click + to add a widget, or drag it onto the screen above.")
-                .foregroundStyle(.secondary)
+        WidgetOptions(model: model, layout: layout)
+        SettingsGroup(title: "Add Widgets", footer: "Click + to add a widget, or drag it onto the screen above.") {
+            Gallery(model: model, layout: layout)
         }
-        Section {
+        HStack {
+            Spacer()
             Button("Reset to Default") { withAnimation(Motion.layout) { stored = standard } }
+                .buttonStyle(.capsule)
                 .disabled(layout.wrappedValue == standard)
         }
     }
@@ -317,12 +453,63 @@ final class DragState: ObservableObject {
     @Published var widget: Widget?
     @Published var cell: Cell?
     @Published var overShelf = false
+    /// The widget picked on the screen preview, whose size and style the bar below it changes.
+    @Published var selected: Widget?
 }
 
 /// One drag state shared by the grid and the shelf.
 @MainActor private let sharedDrag = DragState()
 
+/// The wallpaper still behind card previews in Settings; a dusk gradient if it's missing.
+struct PreviewBackdrop: View {
+    private static let image = Bundle.main.url(forResource: "backdrop", withExtension: "jpg").flatMap(NSImage.init(contentsOf:))
+
+    var body: some View {
+        if let image = Self.image {
+            Image(nsImage: image).resizable().scaledToFill()
+        } else {
+            LinearGradient(colors: [Color(red: 0.04, green: 0.08, blue: 0.19), Color(red: 0.18, green: 0.16, blue: 0.39),
+                                    Color(red: 0.54, green: 0.31, blue: 0.48), Color(red: 0.94, green: 0.63, blue: 0.44)],
+                           startPoint: .top, endPoint: .bottom)
+        }
+    }
+}
+
+/// A card as it looks on the standby screen, for previews in Settings: not clickable, and a placeholder
+/// track for Now Playing when no player has a song loaded.
+struct CardPreview: View {
+    let model: OverlayModel
+    let widget: Widget
+    let size: WidgetSize
+    let style: Int
+    let grid: Grid
+    @ObservedObject private var nowPlaying: NowPlaying
+
+    init(model: OverlayModel, widget: Widget, size: WidgetSize, style: Int, grid: Grid) {
+        self.model = model
+        self.widget = widget
+        self.size = size
+        self.style = style
+        self.grid = grid
+        nowPlaying = model.nowPlaying
+    }
+
+    var body: some View {
+        Group {
+            if widget == .nowPlaying && nowPlaying.track == nil {
+                NowPlayingCard(nowPlaying: .sample, grid: grid, size: size, style: style)
+            } else {
+                WidgetCardView(model: model, widget: widget, size: size, style: style, grid: grid)
+            }
+        }
+        .foregroundStyle(.white)
+        .environment(\.colorScheme, .dark)
+        .allowsHitTesting(false)
+    }
+}
+
 private struct ScreenPreview: View {
+    let model: OverlayModel
     @Binding var layout: WidgetLayout
     let grid: Grid
     @ObservedObject private var drag = sharedDrag
@@ -330,19 +517,26 @@ private struct ScreenPreview: View {
     var body: some View {
         let pills = grid.pillsArea(layout)
         ZStack(alignment: .topLeading) {
-            // A neutral screen: the editor shows placement, not colour.
-            LinearGradient(colors: [Color(white: 0.32), Color(white: 0.14)], startPoint: .top, endPoint: .bottom)
+            // The real cards on a wallpaper still, as standby will look.
+            PreviewBackdrop()
+                .frame(width: grid.width, height: grid.column + 2 * grid.margin)
+                .clipped()
+                .overlay(Color.black.opacity(0.15))
+                .contentShape(Rectangle())
+                .onTapGesture { withAnimation(.smooth(duration: 0.2)) { drag.selected = nil } }
 
             ForEach(layout.allCells, id: \.self) { cell in
                 RoundedRectangle(cornerRadius: grid.radius, style: .continuous)
-                    .strokeBorder(.white.opacity(0.18), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                    .strokeBorder(.white.opacity(0.22), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                    .allowsHitTesting(false)
                     .frame(width: grid.cw, height: grid.s)
                     .offset(x: grid.x(cell.col), y: grid.y(cell.row))
             }
 
             HStack(spacing: grid.u) {
                 ForEach(0..<2, id: \.self) { _ in
-                    Capsule().fill(.white.opacity(0.3)).frame(width: 9 * grid.u, height: 3.2 * grid.u)
+                    Capsule().fill(.black.opacity(0.25)).frame(width: 9 * grid.u, height: 3.2 * grid.u)
+                        .overlay(Capsule().strokeBorder(.white.opacity(0.35), lineWidth: 1))
                 }
             }
             .frame(width: max(pills.width, 1), height: grid.s, alignment: pills.alignment)
@@ -354,7 +548,7 @@ private struct ScreenPreview: View {
                 let o = layout.landing(w, on: c)
                 RoundedRectangle(cornerRadius: grid.radius, style: .continuous)
                     .fill(.white.opacity(0.25))
-                    .frame(width: w.wide ? grid.wide : grid.cw, height: grid.s)
+                    .frame(width: grid.w(layout.size(of: w)), height: grid.h(layout.size(of: w)))
                     .offset(x: grid.x(o.col), y: grid.y(o.row))
                     .allowsHitTesting(false)
             }
@@ -369,15 +563,13 @@ private struct ScreenPreview: View {
 
     private func tile(_ widget: Widget, at o: Cell) -> some View {
         let shape = RoundedRectangle(cornerRadius: grid.radius, style: .continuous)
-        return VStack(spacing: 4) {
-            Image(systemName: widget.symbol).font(.title2)
-            Text(widget.name).font(.callout).lineLimit(1).minimumScaleFactor(0.7)
-        }
-        .foregroundStyle(.white)
-        .frame(width: widget.wide ? grid.wide : grid.cw, height: grid.s)
-        .background(shape.fill(.white.opacity(0.16)))
-        .overlay(shape.strokeBorder(.white.opacity(0.3), lineWidth: 1))
+        let size = layout.size(of: widget)
+        let selected = drag.selected == widget
+        return CardPreview(model: model, widget: widget, size: size, style: layout.style(of: widget), grid: grid)
+        .overlay(shape.strokeBorder(.white, lineWidth: 2).opacity(selected ? 1 : 0))
+        .shadow(color: .white.opacity(selected ? 0.35 : 0), radius: 6)
         .contentShape(shape)
+        .onTapGesture { withAnimation(.smooth(duration: 0.2)) { drag.selected = selected ? nil : widget } }
         .onDrag {
             drag.widget = widget
             return NSItemProvider(object: widget.rawValue as NSString)
@@ -388,7 +580,8 @@ private struct ScreenPreview: View {
         }
         .offset(x: grid.x(o.col), y: grid.y(o.row))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(widget.name), column \(o.col + 1), row \(o.row + 1)")
+        .accessibilityLabel("\(widget.name), \(size.name), column \(o.col + 1), row \(o.row + 1)")
+        .accessibilityAddTraits(selected ? [.isSelected, .isButton] : .isButton)
         .accessibilityAction(named: "Move Up") { change { $0.nudge(widget, dx: 0, dy: -1) } }
         .accessibilityAction(named: "Move Down") { change { $0.nudge(widget, dx: 0, dy: 1) } }
         .accessibilityAction(named: "Move Left") { change { $0.nudge(widget, dx: -1, dy: 0) } }
@@ -398,6 +591,77 @@ private struct ScreenPreview: View {
 
     private func change(_ edit: (inout WidgetLayout) -> Void) {
         withAnimation(Motion.layout) { edit(&layout) }
+    }
+}
+
+/// Size and style for the widget picked on the screen preview: a size picker, then a preview of
+/// each style to click.
+private struct WidgetOptions: View {
+    let model: OverlayModel
+    @Binding var layout: WidgetLayout
+    @ObservedObject private var drag = sharedDrag
+
+    var body: some View {
+        if let widget = drag.selected, layout.origin(of: widget) != nil {
+            let size = layout.size(of: widget)
+            let styles = widget.styles(size)
+            SettingsGroup(title: "Selected: \(widget.name)", footer: "A bigger size moves cards in the way, or off the screen if there's no room.") {
+                SettingsRow(title: "Size") {
+                    HStack(spacing: 10) {
+                        Segmented(selection: Binding { size } set: { new in
+                            withAnimation(Motion.layout) { _ = layout.resize(widget, to: new) }
+                        }, choices: widget.sizes.filter(layout.allows).map { Choice($0.name, $0) })
+                        Button("Done") { withAnimation(.smooth(duration: 0.2)) { drag.selected = nil } }
+                            .buttonStyle(.capsule)
+                    }
+                }
+                ScrollView(.horizontal) {
+                    HStack(alignment: .top, spacing: 16) {
+                        ForEach(styles.indices, id: \.self) { i in
+                            StyleThumb(model: model, widget: widget, size: size, style: i, name: styles[i],
+                                       selected: layout.style(of: widget) == i) {
+                                withAnimation(Motion.layout) { layout.setStyle(widget, i) }
+                            }
+                        }
+                    }
+                    .padding(12)
+                }
+                .scrollIndicators(.never)
+            }
+        }
+    }
+}
+
+/// One style of a widget, drawn small on the wallpaper, with its name. Click to use it.
+private struct StyleThumb: View {
+    let model: OverlayModel
+    let widget: Widget
+    let size: WidgetSize
+    let style: Int
+    let name: String
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        let grid = Grid.preview(u: size == .extraLarge ? 2.4 : 3.2)
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        Button(action: action) {
+            VStack(spacing: 6) {
+                CardPreview(model: model, widget: widget, size: size, style: style, grid: grid)
+                    .padding(10)
+                    .background(PreviewBackdrop().allowsHitTesting(false))
+                    .clipShape(shape)
+                    .overlay(shape.strokeBorder(Color.graphite, lineWidth: 2.5).opacity(selected ? 1 : 0))
+                Text(name)
+                    .font(.callout)
+                    .fontWeight(selected ? .semibold : .regular)
+                    .foregroundStyle(selected ? .primary : .secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(name) style")
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
@@ -423,20 +687,28 @@ private struct Badge: View {
 
 /// Widgets not on the screen, as small tiles with a + in the corner. Dropping a widget here removes it.
 private struct Gallery: View {
+    let model: OverlayModel
     @Binding var layout: WidgetLayout
     @ObservedObject private var drag = sharedDrag
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 14)], spacing: 14) {
+        let grid = Grid.preview(u: 3.2)
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 14)], spacing: 14) {
             ForEach(layout.shelf) { widget in
                 VStack(spacing: 6) {
-                    Image(systemName: widget.symbol).font(.title2)
+                    CardPreview(model: model, widget: widget, size: layout.size(of: widget), style: layout.style(of: widget), grid: grid)
+                        .frame(height: grid.h(.large), alignment: .center)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(PreviewBackdrop().allowsHitTesting(false))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     Text(widget.name).font(.callout)
-                    Text(widget.wide ? "Medium" : "Small").font(.caption).foregroundStyle(.secondary)
+                    Text(layout.size(of: widget).name).font(.caption).foregroundStyle(.secondary)
                 }
-                .frame(maxWidth: .infinity, minHeight: 92)
-                .background(shape.fill(.quaternary))
+                .padding(8)
+                .frame(maxWidth: .infinity)
+                .background(shape.fill(Color.primary.opacity(0.05)))
                 .contentShape(shape)
                 .overlay(alignment: .topLeading) {
                     Badge(symbol: "plus", label: "Add \(widget.name)") {
@@ -457,7 +729,7 @@ private struct Gallery: View {
                 Text("Every widget is on the screen. Drag one here to remove it.").foregroundStyle(.secondary)
             }
         }
-        .background(RoundedRectangle(cornerRadius: 16).strokeBorder(drag.overShelf ? Color.accentColor : .clear, lineWidth: 2))
+        .background(RoundedRectangle(cornerRadius: 16).strokeBorder(drag.overShelf ? Color.graphite : .clear, lineWidth: 2))
         .onDrop(of: [.text], delegate: ShelfDrop(layout: $layout, drag: drag))
         .animation(Motion.layout, value: layout)
     }
@@ -472,7 +744,7 @@ private struct GridDrop: DropDelegate {
     private func cell(at p: CGPoint) -> Cell? {
         let pitch = grid.s + grid.g
         let row = Int((p.y - grid.margin) / pitch)
-        guard p.y >= grid.margin, row < WidgetLayout.rows else { return nil }
+        guard p.y >= grid.margin, row < grid.rows else { return nil }
         // Nearest column by centre, so gaps and margins snap to a cell.
         let col = (0..<grid.columns).min { abs(grid.x($0) + grid.cw / 2 - p.x) < abs(grid.x($1) + grid.cw / 2 - p.x) }!
         return Cell(col: col, row: row)

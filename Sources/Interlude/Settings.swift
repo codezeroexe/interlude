@@ -5,7 +5,7 @@ import SwiftUI
 
 /// One area of settings in the sidebar.
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case general, appearance, layout, widgets, wallpaper, music, notifications
+    case general, appearance, layout, widgets, wallpaper, music, privacy
 
     var id: Self { self }
 
@@ -17,54 +17,243 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .widgets: "Widgets"
         case .wallpaper: "Wallpaper"
         case .music: "Music"
-        case .notifications: "Notifications"
+        case .privacy: "Privacy"
         }
     }
 
     var symbol: String {
         switch self {
-        case .general: "gearshape"
+        case .general: "switch.2"
         case .appearance: "circle.lefthalf.filled"
-        case .layout: "rectangle.3.group"
+        case .layout: "square.grid.3x3.square"
         case .widgets: "square.grid.2x2"
-        case .wallpaper: "photo.on.rectangle"
+        case .wallpaper: "photo"
         case .music: "music.note"
-        case .notifications: "bell.badge"
+        case .privacy: "hand.raised.fill"
         }
+    }
+
+    /// The sidebar heading this area sits under.
+    var group: String {
+        switch self {
+        case .general, .appearance: "Interlude"
+        case .layout, .widgets, .wallpaper: "Screen"
+        case .music, .privacy: "Features"
+        }
+    }
+
+    /// Words the sidebar search also matches, beyond the name.
+    var keywords: String {
+        switch self {
+        case .general: "idle start login charging display shortcuts"
+        case .appearance: "clock font serif colour color night red glass frosted liquid tint transparency frost"
+        case .layout: "grid size rows widgets move resize style add remove music night profile"
+        case .widgets: "world clock cities time zone focus timer length reminders list"
+        case .wallpaper: "aerial video shuffle background"
+        case .music: "album colours backdrop monochrome artwork now playing"
+        case .privacy: "permissions access calendar reminders location music spotify welcome tour"
+        }
+    }
+
+    static let groups = ["Interlude", "Screen", "Features"]
+
+    func matches(_ query: String) -> Bool {
+        query.isEmpty || "\(name) \(keywords)".localizedCaseInsensitiveContains(query)
     }
 }
 
-/// The settings window: a sidebar of areas and a grouped form for the chosen one, like System Settings.
-/// Resizable, and reopens on the area used last.
+/// The sidebar's search text and the back/forward history. (A model object: no SwiftUI macros here.)
+final class SettingsNavigation: ObservableObject {
+    @Published var search = ""
+    private(set) var back: [SettingsPane] = []
+    private(set) var forward: [SettingsPane] = []
+
+    /// Records leaving `from` for another area, as a browser does.
+    func visit(from: SettingsPane) {
+        back.append(from)
+        forward.removeAll()
+        objectWillChange.send()
+    }
+
+    func goBack(from current: SettingsPane) -> SettingsPane? {
+        guard let pane = back.popLast() else { return nil }
+        forward.append(current)
+        objectWillChange.send()
+        return pane
+    }
+
+    func goForward(from current: SettingsPane) -> SettingsPane? {
+        guard let pane = forward.popLast() else { return nil }
+        back.append(current)
+        objectWillChange.send()
+        return pane
+    }
+}
+
+/// A symbol in a small graphite tile, as in the mockup's sidebar and permission rows.
+struct PaneIcon: View {
+    let symbol: String
+    var size: CGFloat = 22
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: size * 0.5, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: size, height: size)
+            .background(RoundedRectangle(cornerRadius: size * 0.27, style: .continuous)
+                .fill(LinearGradient(colors: [Color(red: 0.36, green: 0.36, blue: 0.38), Color(red: 0.17, green: 0.17, blue: 0.19)],
+                                     startPoint: .top, endPoint: .bottom)))
+            .overlay(RoundedRectangle(cornerRadius: size * 0.27, style: .continuous).strokeBorder(.white.opacity(0.2), lineWidth: 0.5))
+    }
+}
+
+/// The settings window, as in reference/settings-onboarding.html: a searchable sidebar of areas under
+/// headings, back and forward buttons with the area's name, and grouped rows. Reopens on the area used last.
 struct SettingsView: View {
     static let windowID = "settings"
     let overlay: OverlayController
     @AppStorage("settingsPane") private var pane = SettingsPane.general
+    @StateObject private var nav = SettingsNavigation()
 
     var body: some View {
-        NavigationSplitView {
-            List(SettingsPane.allCases, selection: Binding { pane } set: { if let p = $0 { pane = p } }) { item in
-                Label(item.name, systemImage: item.symbol).tag(item)
+        // As in the mockup: a see-through window, a floating sidebar panel with the window buttons in its
+        // top corner, and the back and forward capsule level with them beside the area's name.
+        HStack(spacing: 0) {
+            sidebar
+                .frame(width: 236)
+                .frame(maxHeight: .infinity)
+                .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.primary.opacity(0.06)))
+                .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(.white.opacity(0.14), lineWidth: 0.5))
+                .shadow(color: .black.opacity(0.06), radius: 4, y: 1)
+                .padding(8)
+            VStack(spacing: 0) {
+                toolbar
+                detail
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    // The scroll edge: rows fade out under the toolbar row instead of meeting a hard line.
+                    .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.025)],
+                                         startPoint: .top, endPoint: .bottom))
             }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 280)
-        } detail: {
-            detail
-                .navigationTitle(pane.name)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(minWidth: 760, minHeight: 540)
+        .navigationTitle(pane.name) // the window's title, for the Window menu and Mission Control
+        .background(SeeThroughWindow())
+        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .ignoresSafeArea()
+        .frame(minWidth: 760, minHeight: 560)
+        .tint(.graphite)
         .onAppear { NSApp.activate() } // menu bar apps don't come forward on their own
+        // Previews show the song playing now, so keep reading the player while Settings is open.
+        .onAppear { overlay.model.nowPlaying.start() }
+        .onDisappear { overlay.model.nowPlaying.stop() }
+    }
+
+    /// Back and forward in one capsule, then the area's name, centred on the window buttons' line.
+    private var toolbar: some View {
+        HStack(spacing: 10) {
+            HStack(spacing: 0) {
+                Button { if let p = nav.goBack(from: pane) { pane = p } } label: {
+                    Image(systemName: "chevron.left").frame(width: 30, height: 28).contentShape(Rectangle())
+                }
+                .disabled(nav.back.isEmpty)
+                .keyboardShortcut("[")
+                .accessibilityLabel("Back")
+                Button { if let p = nav.goForward(from: pane) { pane = p } } label: {
+                    Image(systemName: "chevron.right").frame(width: 30, height: 28).contentShape(Rectangle())
+                }
+                .disabled(nav.forward.isEmpty)
+                .keyboardShortcut("]")
+                .accessibilityLabel("Forward")
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .background(Capsule().fill(Color.groupFill))
+            .overlay(Capsule().strokeBorder(.white.opacity(0.14), lineWidth: 0.5))
+            .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
+            Text(pane.name).font(.system(size: 15, weight: .semibold))
+            Spacer()
+        }
+        .padding(.leading, 4)
+        .padding(.trailing, 20)
+        .frame(height: 52)
+    }
+
+    /// Plain rows with a soft grey highlight, instead of the accent-coloured list selection.
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // The window's close, minimise and zoom buttons sit here, centred 26 points from the top.
+            Color.clear.frame(height: 44)
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("Search", text: $nav.search).textFieldStyle(.plain)
+            }
+            .font(.system(size: 13))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.06)))
+            .padding(.horizontal, 12)
+            .padding(.bottom, 4)
+            sidebarList
+        }
+    }
+
+    private var sidebarList: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 1) {
+                ForEach(SettingsPane.groups, id: \.self) { group in
+                    let panes = SettingsPane.allCases.filter { $0.group == group && $0.matches(nav.search) }
+                    if !panes.isEmpty {
+                        Text(group)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, 10)
+                            .padding(.top, 10)
+                            .padding(.bottom, 4)
+                        ForEach(panes) { item in
+                            Button { go(to: item) } label: {
+                                HStack(spacing: 9) {
+                                    PaneIcon(symbol: item.symbol)
+                                    Text(item.name).fontWeight(item == pane ? .medium : .regular)
+                                    Spacer()
+                                }
+                                .font(.system(size: 13))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
+                                .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(item == pane ? Color.primary.opacity(0.09) : .clear))
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityAddTraits(item == pane ? .isSelected : [])
+                        }
+                    }
+                }
+                if SettingsPane.allCases.allSatisfy({ !$0.matches(nav.search) }) {
+                    Text("No Results")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 20)
+                }
+            }
+            .padding(.horizontal, 8)
+        }
+    }
+
+    private func go(to new: SettingsPane) {
+        guard new != pane else { return }
+        nav.visit(from: pane)
+        pane = new
     }
 
     @ViewBuilder private var detail: some View {
         switch pane {
         case .general: GeneralSettings(overlay: overlay)
-        case .appearance: AppearanceSettings(weather: overlay.model.weather)
-        case .layout: LayoutSettings()
-        case .widgets: WidgetSettings()
+        case .appearance: AppearanceSettings(model: overlay.model)
+        case .layout: LayoutSettings(model: overlay.model)
+        case .widgets: WidgetSettings(model: overlay.model)
         case .wallpaper: WallpaperSettings()
-        case .music: MusicSettings()
-        case .notifications: NotificationSettings()
+        case .music: MusicSettings(model: overlay.model)
+        case .privacy: PrivacySettings(overlay: overlay)
         }
     }
 }
@@ -76,81 +265,391 @@ private struct GeneralSettings: View {
     let overlay: OverlayController
     @AppStorage(IdleMonitor.minutesKey) private var idleMinutes = IdleMonitor.defaultMinutes
     @StateObject private var login = LoginItem()
-    @StateObject private var permissions = PermissionsModel()
     @AppStorage(StartConditions.onlyChargingKey) private var onlyCharging = false
     @AppStorage(StartConditions.skipWhenAwakeKey) private var skipWhenAwake = true
     @AppStorage(StartConditions.displayKey) private var display = ""
 
     var body: some View {
-        Form {
-            Section {
-                Picker("Start Interlude after", selection: $idleMinutes) {
-                    ForEach(idleChoices, id: \.self) { Text("\($0) min idle").tag($0) }
+        SettingsPage {
+            SettingsGroup(footer: "While it's open: Space plays or pauses, ← and → skip tracks, T starts the focus timer, Esc closes.") {
+                HStack(spacing: 14) {
+                    Image(nsImage: NSApp.applicationIconImage)
+                        .resizable()
+                        .frame(width: 56, height: 56)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Interlude").font(.system(size: 17, weight: .semibold))
+                        Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–")")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Show Now") { overlay.show() }
+                        .buttonStyle(.capsule)
                 }
-                Toggle("Open at login", isOn: $login.enabled)
-                    .toggleStyle(.switch)
-                    .controlSize(.mini) // single-row switch in a grouped form (HIG: toggles.md › Switches)
-            } footer: {
-                Text("Interlude keeps the display awake while it's showing. Press Esc or click the wallpaper to leave.")
-                    .foregroundStyle(.secondary)
+                .padding(14)
             }
-            Section {
-                Toggle("Only while charging", isOn: $onlyCharging)
-                Toggle("Not while another app keeps the display on", isOn: $skipWhenAwake)
-                Picker("Display", selection: $display) {
-                    Text("Main Display").tag("")
-                    ForEach(NSScreen.screens.map(\.localizedName), id: \.self) { Text($0).tag($0) }
+            SettingsGroup(title: "Starting") {
+                SettingsRow(title: "Start Interlude after", subtitle: "How long your Mac sits idle first") {
+                    PopupMenu(selection: $idleMinutes, choices: idleChoices.map { Choice($0 == 1 ? "1 minute" : "\($0) minutes", $0) })
                 }
-            } header: {
-                Text("Starting on Its Own")
-            } footer: {
-                Text("Video calls, screen sharing, presentations and video players keep the display on, so Interlude waits until they finish. Starting Interlude from the menu ignores these rules.")
-                    .foregroundStyle(.secondary)
+                SettingsRow(title: "Open at login", subtitle: "Starts quietly in the menu bar") {
+                    Toggle("Open at login", isOn: $login.enabled).labelsHidden()
+                }
             }
-            Section {
-                ForEach(permissions.items) { item in
-                    LabeledContent {
-                        if item.granted {
-                            Label("Allowed", systemImage: "checkmark.circle.fill")
-                                .labelStyle(.titleAndIcon)
-                                .foregroundStyle(.secondary)
+            SettingsGroup(title: "When to Stay Away", footer: "Starting Interlude from the menu bar ignores these.") {
+                SettingsRow(title: "Only while charging", subtitle: "Saves battery on the go") {
+                    Toggle("Only while charging", isOn: $onlyCharging).labelsHidden()
+                }
+                SettingsRow(title: "Not while another app keeps the display on", subtitle: "For example during a video call or a film") {
+                    Toggle("Not while another app keeps the display on", isOn: $skipWhenAwake).labelsHidden()
+                }
+                SettingsRow(title: "Display", subtitle: "Where Interlude appears") {
+                    PopupMenu(selection: $display, choices: [Choice("Main Display", "")] + NSScreen.screens.map { Choice($0.localizedName, $0.localizedName) })
+                }
+            }
+        }
+    }
+}
+
+private struct AppearanceSettings: View {
+    let model: OverlayModel
+    @AppStorage(ClockFont.key) private var clockFont = ClockFont.sfPro
+    @AppStorage(GlassStyle.key) private var style = GlassStyle.frosted
+    @AppStorage(GlassStyle.frostKey) private var frost = GlassStyle.defaultFrost
+    @AppStorage(GlassStyle.transparencyKey) private var transparency = GlassStyle.defaultTransparency
+    @AppStorage(GlassStyle.tintKey) private var tint = GlassStyle.defaultTint
+    @AppStorage(GlassStyle.liquidToneKey) private var liquidTone = "dark"
+    @AppStorage(ClockColor.key) private var clockColor = ClockColor.white
+    @AppStorage(ClockColor.customKey) private var customColor = ""
+    @AppStorage(NightMode.key) private var nightMode = NightMode.off
+    @AppStorage(NightMode.startKey) private var nightStart = 22
+    @AppStorage(NightMode.endKey) private var nightEnd = 7
+    @AppStorage(NightMode.tintKey) private var nightTint = NightTint.red
+
+    var body: some View {
+        SettingsPage {
+            // The real cards over the wallpaper, so font and glass are easy to judge.
+            // With "Match Music" the music card joins the preview, so the clock's colour has its source.
+            StandbyScene(model: model, cards: clockColor == .music
+                         ? [[(.nowPlaying, .medium, 0)], [(.weather, .small, 0), (.calendar, .small, 1)]]
+                         : [[(.weather, .medium, 0)], [(.calendar, .medium, 0)]])
+                .environment(\.previewMusic, true)
+                .frame(height: 196)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .padding(.top, 6)
+            SettingsGroup(title: "Clock") {
+                SettingsRow(title: "Font") {
+                    Segmented(selection: $clockFont, choices: [Choice("SF Pro", .sfPro), Choice("Serif", .instrumentSerif)])
+                }
+                SettingsRow(title: "Colour") {
+                    PopupMenu(selection: $clockColor, choices: ClockColor.allCases.map { Choice($0.name, $0) })
+                }
+                if clockColor == .custom {
+                    SettingsRow(title: "Custom colour") {
+                        ColorPicker("Custom colour", selection: Binding {
+                            ClockColor.custom(from: customColor)
+                        } set: { customColor = ClockColor.raw(from: $0) }, supportsOpacity: false)
+                        .labelsHidden()
+                    }
+                }
+            }
+            SettingsGroup(title: "Night") {
+                if nightMode != .off {
+                    // How the screen looks at night, in the colour picked below.
+                    StandbyScene(model: model, cards: [[(.weather, .medium, 0)], [(.calendar, .medium, 0)]], night: nightTint)
+                        .frame(height: 150)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .padding(10)
+                        .animation(.smooth(duration: 0.3), value: nightTint)
+                }
+                SettingsRow(title: "Night mode", subtitle: "Hides the wallpaper and dims every card to one colour") {
+                    PopupMenu(selection: $nightMode, choices: [Choice("Off", .off), Choice("On a Schedule", .scheduled), Choice("Always", .always)])
+                }
+                if nightMode == .scheduled {
+                    SettingsRow(title: "From") { hourPicker("From", $nightStart) }
+                    SettingsRow(title: "To") { hourPicker("To", $nightEnd) }
+                }
+                if nightMode != .off {
+                    SettingsRow(title: "Colour", subtitle: "Red keeps your eyes used to the dark") {
+                        Segmented(selection: $nightTint, choices: [Choice("Red", .red), Choice("Grey", .grey)])
+                    }
+                }
+            }
+            SettingsGroup(title: "Cards") {
+                SettingsRow(title: "Material") {
+                    Segmented(selection: $style, choices: GlassStyle.allCases.map { Choice($0.name, $0) })
+                }
+                if style == .liquid {
+                    SettingsRow(title: "Tint", subtitle: "For clear or tinted glass, use System Settings › Appearance") {
+                        Segmented(selection: $liquidTone, choices: [Choice("Dark", "dark"), Choice("Light", "light")])
+                    }
+                } else {
+                    SettingsRow(title: "Frost", subtitle: "How blurred the wallpaper behind is") { slider("Frost", $frost) }
+                    SettingsRow(title: "Transparency", subtitle: "How much of the wallpaper shows through") { slider("Transparency", $transparency) }
+                    SettingsRow(title: "Tint", subtitle: "How dark the cards are") { slider("Tint", $tint) }
+                }
+            }
+        }
+        .animation(.smooth(duration: 0.3), value: style)
+        .animation(.smooth(duration: 0.3), value: nightMode)
+        .animation(.smooth(duration: 0.3), value: clockColor)
+    }
+
+    private func hourPicker(_ title: String, _ value: Binding<Int>) -> some View {
+        PopupMenu(selection: value, choices: (0..<24).map {
+            Choice(Calendar.current.date(bySettingHour: $0, minute: 0, second: 0, of: .now)!.formatted(date: .omitted, time: .shortened), $0)
+        })
+    }
+
+    private func slider(_ title: String, _ value: Binding<Double>) -> some View {
+        GraphiteSlider(title: title, value: value)
+    }
+}
+
+private struct WallpaperSettings: View {
+    @AppStorage(AerialCatalog.selectionKey) private var wallpaper = AerialCatalog.defaultSelection
+
+    var body: some View {
+        SettingsPage {
+            SettingsGroup(footer: "The aerials from System Settings › Wallpaper. Downloaded ones play from disk; the rest stream from Apple.") {
+                SettingsRow(title: "Play", subtitle: "A new aerial each time Interlude starts") {
+                    PopupMenu(selection: $wallpaper, choices:
+                        [.heading("Shuffle"), Choice("All Aerials", "all")]
+                        + AerialCatalog.categories.map { Choice("All \($0.name)", "category:\($0.id)") }
+                        + AerialCatalog.categories.flatMap { category in
+                            [Choice<String>.heading(category.name)] + category.aerials.map { Choice($0.name, "aerial:\($0.id)") }
+                        })
+                }
+            }
+            ForEach(AerialCatalog.categories) { category in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(category.name)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 10)
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 12) {
+                        ForEach(category.aerials) { aerial in thumb(aerial, in: category) }
+                    }
+                }
+            }
+        }
+    }
+
+    /// An aerial's still with its name. Click to play only that one.
+    private func thumb(_ aerial: AerialCatalog.Aerial, in category: AerialCatalog.Category) -> some View {
+        let on = wallpaper == "aerial:\(aerial.id)" || wallpaper == "category:\(category.id)" || wallpaper == "all"
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        return Button { wallpaper = "aerial:\(aerial.id)" } label: {
+            Color.clear
+                .frame(height: 118)
+                .overlay {
+                    AsyncImage(url: aerial.preview) { image in
+                        image.resizable().scaledToFill()
+                    } placeholder: {
+                        PreviewBackdrop()
+                    }
+                }
+                .overlay(alignment: .bottomLeading) {
+                    Text(aerial.name)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .padding(.horizontal, 10)
+                        .padding(.top, 18)
+                        .padding(.bottom, 7)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .top, endPoint: .bottom))
+                }
+                .clipShape(shape)
+                .overlay(shape.strokeBorder(Color.graphite, lineWidth: 2.5).opacity(wallpaper == "aerial:\(aerial.id)" ? 1 : 0))
+                .opacity(on ? 1 : 0.55)
+                .contentShape(shape)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(aerial.name)
+        .accessibilityAddTraits(wallpaper == "aerial:\(aerial.id)" ? .isSelected : [])
+    }
+}
+
+private struct MusicSettings: View {
+    let model: OverlayModel
+    @AppStorage(MusicLook.key) private var musicLook = MusicLook.album
+    @AppStorage("monochromeArtwork") private var monochromeArtwork = true
+    private let players = PlayerBridge()
+
+    var body: some View {
+        let grid = Grid.preview(u: 5.2)
+        SettingsPage {
+            // The real Now Playing card with the song playing now (a sample one when nothing plays).
+            CardPreview(model: model, widget: .nowPlaying, size: .medium, style: 0, grid: grid)
+                .frame(maxWidth: .infinity)
+                .frame(height: 150)
+                // What sits behind the card while music plays: the album's colours, or the wallpaper.
+                .background {
+                    if musicLook == .album {
+                        let source = model.nowPlaying.track == nil ? NowPlaying.sample : model.nowPlaying
+                        MusicBackground(artwork: source.artwork, palette: source.palette, playing: true)
+                    } else {
+                        PreviewBackdrop()
+                    }
+                }
+                .animation(.smooth(duration: 0.4), value: musicLook)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .padding(.top, 6)
+            SettingsGroup(title: "While Music Plays") {
+                SettingsRow(title: "Background", subtitle: "What sits behind the Now Playing card") {
+                    PopupMenu(selection: $musicLook, choices: [Choice("Album Colours", .album), Choice("Wallpaper", .wallpaper)])
+                }
+                SettingsRow(title: "Monochrome album art", subtitle: "Keeps the screen black and white") {
+                    Toggle("Monochrome album art", isOn: $monochromeArtwork).labelsHidden()
+                }
+            }
+            SettingsGroup(title: "Players", footer: "Interlude asks each player for access while it's open.") {
+                ForEach(Track.Player.allCases, id: \.self) { player in
+                    SettingsRow(title: player == .music ? "Music" : "Spotify") {
+                        if players.permitted(player, ask: false) {
+                            AllowedLabel()
                         } else {
-                            Button(item.canAsk ? "Allow…" : "Open Settings…") { permissions.fix(item.id) }
-                        }
-                    } label: {
-                        Label {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(item.name)
-                                Text(item.purpose).font(.caption).foregroundStyle(.secondary)
-                            }
-                        } icon: {
-                            Image(systemName: item.symbol)
+                            Button("Allow…") { model.nowPlaying.requestPermissions() }
+                                .buttonStyle(.capsule)
                         }
                     }
                 }
-            } header: {
-                Text("Permissions")
-            } footer: {
-                Text("Each one turns on one part of Interlude; everything else works without it. Restart Interlude after allowing Full Disk Access.")
-                    .foregroundStyle(.secondary)
-            }
-            Section {
-                Button("Show Interlude Now") { overlay.show() }
-            } footer: {
-                Text("Opens Interlude right away, to check a change. While it's open: Space plays or pauses, ← and → skip tracks, T starts the focus timer, Esc closes.")
-                    .foregroundStyle(.secondary)
             }
         }
-        .formStyle(.grouped)
+    }
+}
+
+/// Settings for individual widgets: World Clock cities, the focus timer's length and Reminders.
+private struct WidgetSettings: View {
+    let model: OverlayModel
+    @AppStorage(WorldCity.key) private var raw = WorldCity.defaults
+    @AppStorage(FocusTimer.minutesKey) private var minutes = 25
+    private static let zones = TimeZone.knownTimeZoneIdentifiers.sorted()
+
+    var body: some View {
+        let cities = WorldCity.load(raw)
+        let grid = Grid.preview(u: 5.6)
+        SettingsPage {
+            // The real cards these settings change.
+            HStack(spacing: grid.g) {
+                CardPreview(model: model, widget: .worldClock, size: .medium, style: 0, grid: grid)
+                CardPreview(model: model, widget: .timer, size: .small, style: 0, grid: grid)
+                CardPreview(model: model, widget: .reminders, size: .small, style: 0, grid: grid)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: grid.s + 44)
+            .background(PreviewBackdrop())
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .padding(.top, 6)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Preview of the World Clock, Focus Timer and Reminders cards")
+            SettingsGroup(title: "World Clock", footer: "Four cities, each with its own name and time zone.") {
+                ForEach(cities.indices, id: \.self) { i in
+                    HStack {
+                        TextField("City \(i + 1)", text: Binding { cities[i].name } set: { edit(i) { $0.name = $1 }($0) })
+                            .textFieldStyle(.plain)
+                            .labelsHidden()
+                        PopupMenu(selection: Binding { cities[i].zone } set: { edit(i) { $0.zone = $1 }($0) },
+                                  choices: Self.zones.map { Choice($0.replacingOccurrences(of: "_", with: " "), $0) })
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                }
+                HStack {
+                    Spacer()
+                    Button("Reset to Default") { raw = WorldCity.defaults }
+                        .buttonStyle(.capsule)
+                        .disabled(raw == WorldCity.defaults)
+                }
+                .padding(10)
+            }
+            SettingsGroup(title: "Focus Timer", footer: "Click the timer on the Interlude screen to start or pause it; right-click to reset. It chimes when it ends.") {
+                SettingsRow(title: "Length") {
+                    PopupMenu(selection: $minutes, choices: [5, 10, 15, 20, 25, 30, 45, 50, 60, 90].map { Choice("\($0) minutes", $0) })
+                }
+            }
+            SettingsGroup(title: "Reminders", footer: "Click a circle on the Interlude screen to complete a reminder. Change the default list in Reminders › Settings.") {
+                SettingsRow(title: "List", subtitle: "The first four unfinished reminders show") {
+                    Text("Default list").foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    /// Returns a setter that changes one field of city `i` and saves the list.
+    private func edit(_ i: Int, _ change: @escaping (inout WorldCity, String) -> Void) -> (String) -> Void {
+        { value in
+            var cities = WorldCity.load(raw)
+            guard cities.indices.contains(i) else { return }
+            change(&cities[i], value)
+            raw = WorldCity.save(cities)
+        }
+    }
+}
+
+/// One permission: what it's for, and Allowed or a button that asks.
+struct PermissionRow: View {
+    let item: PermissionsModel.Item
+    let fix: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            PaneIcon(symbol: item.symbol)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(item.name)
+                Text(item.purpose).font(.system(size: 12)).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 12)
+            if item.granted {
+                AllowedLabel()
+            } else {
+                Button(item.canAsk ? "Allow…" : "Open Settings…", action: fix)
+                    .buttonStyle(.capsule)
+            }
+        }
+        .font(.system(size: 13))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+    }
+}
+
+private struct PrivacySettings: View {
+    let overlay: OverlayController
+    @StateObject private var permissions: PermissionsModel
+    @Environment(\.openWindow) private var openWindow
+
+    init(overlay: OverlayController) {
+        self.overlay = overlay
+        _permissions = StateObject(wrappedValue: PermissionsModel(model: overlay.model))
+    }
+
+    var body: some View {
+        SettingsPage {
+            SettingsGroup(footer: "Interlude reads this on your Mac only, apart from your rough location going to the weather service. To take access back, use System Settings › Privacy & Security.") {
+                ForEach(permissions.items) { item in
+                    PermissionRow(item: item) { permissions.fix(item.id) }
+                }
+            }
+            .padding(.top, 6)
+            SettingsGroup {
+                SettingsRow(title: "Replay the welcome tour") {
+                    Button("Show Tour") { openWindow(id: OnboardingView.windowID) }
+                        .buttonStyle(.capsule)
+                }
+            }
+        }
         .onAppear { permissions.reload() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in permissions.reload() }
     }
 }
 
-/// What Interlude may access, for the Permissions list in General.
+/// What Interlude may access, for Settings › Privacy and the welcome window. Asks through the stores
+/// the standby screen reads from, so they see the answer without a restart.
 @MainActor
 final class PermissionsModel: ObservableObject {
-    enum Kind: String { case calendar, reminders, location, fullDisk }
+    enum Kind: String { case calendar, reminders, location, music }
 
     struct Item: Identifiable {
         let id: Kind
@@ -163,37 +662,45 @@ final class PermissionsModel: ObservableObject {
     }
 
     @Published private(set) var items: [Item] = []
-    private let events = EKEventStore()
+    private let model: OverlayModel
     private let location = CLLocationManager()
+    private let players = PlayerBridge()
+
+    init(model: OverlayModel) { self.model = model }
 
     func reload() {
         let cal = EKEventStore.authorizationStatus(for: .event)
         let rem = EKEventStore.authorizationStatus(for: .reminder)
         let loc = location.authorizationStatus
+        let music = Track.Player.allCases.contains { players.permitted($0, ask: false) }
         items = [
-            Item(id: .calendar, name: "Calendar", purpose: "Next event pill and hover details", symbol: "calendar",
+            Item(id: .calendar, name: "Calendar", purpose: "Shows your next event", symbol: "calendar",
                  granted: cal == .fullAccess, canAsk: cal == .notDetermined),
-            Item(id: .reminders, name: "Reminders", purpose: "Reminders card", symbol: "checklist",
+            Item(id: .reminders, name: "Reminders", purpose: "Lists what's due and lets you tick it off", symbol: "checklist",
                  granted: rem == .fullAccess, canAsk: rem == .notDetermined),
-            Item(id: .location, name: "Location", purpose: "Weather for where you are", symbol: "location",
+            Item(id: .location, name: "Location", purpose: "Weather for where you are", symbol: "location.fill",
                  granted: loc == .authorizedAlways || loc == .authorized, canAsk: loc == .notDetermined),
-            Item(id: .fullDisk, name: "Full Disk Access", purpose: "Notification pills", symbol: "lock.shield",
-                 granted: NotificationStore.hasAccess, canAsk: false),
+            Item(id: .music, name: "Music and Spotify", purpose: "Shows and controls what's playing. Asks while the player is open.",
+                 symbol: "music.note", granted: music, canAsk: true),
         ]
     }
 
     func fix(_ kind: Kind) {
         guard let item = items.first(where: { $0.id == kind }) else { return }
         if item.canAsk {
+            switch kind {
+            case .calendar: model.calendar.requestAccess()
+            case .reminders: model.reminders.requestAccess()
+            case .location: model.weather.requestAccess()
+            case .music: model.nowPlaying.requestPermissions()
+            }
+            // The system prompt waits for an answer, so check again for a while.
             Task {
-                switch kind {
-                case .calendar: _ = try? await events.requestFullAccessToEvents()
-                case .reminders: _ = try? await events.requestFullAccessToReminders()
-                case .location: location.requestWhenInUseAuthorization()
-                case .fullDisk: break
+                for _ in 0..<30 {
+                    try? await Task.sleep(for: .seconds(1))
+                    reload()
+                    if items.first(where: { $0.id == kind })?.granted == true { break }
                 }
-                try? await Task.sleep(for: .seconds(1))
-                reload()
             }
             return
         }
@@ -201,7 +708,7 @@ final class PermissionsModel: ObservableObject {
         case .calendar: "Privacy_Calendars"
         case .reminders: "Privacy_Reminders"
         case .location: "Privacy_LocationServices"
-        case .fullDisk: "Privacy_AllFiles"
+        case .music: "Privacy_Automation"
         }
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)")!)
     }
@@ -218,308 +725,3 @@ final class LoginItem: ObservableObject {
     }
 }
 
-private struct AppearanceSettings: View {
-    let weather: WeatherStore
-    @AppStorage(ClockFont.key) private var clockFont = ClockFont.sfPro
-    @AppStorage(GlassStyle.key) private var style = GlassStyle.frosted
-    @AppStorage(GlassStyle.frostKey) private var frost = GlassStyle.defaultFrost
-    @AppStorage(GlassStyle.transparencyKey) private var transparency = GlassStyle.defaultTransparency
-    @AppStorage(GlassStyle.tintKey) private var tint = GlassStyle.defaultTint
-    @AppStorage(GlassStyle.liquidToneKey) private var liquidTone = "dark"
-    @AppStorage(ClockColor.key) private var clockColor = ClockColor.white
-    @AppStorage(ClockColor.customKey) private var customColor = ""
-    @AppStorage(NightMode.key) private var nightMode = NightMode.off
-    @AppStorage(NightMode.startKey) private var nightStart = 22
-    @AppStorage(NightMode.endKey) private var nightEnd = 7
-    @AppStorage(NightMode.tintKey) private var nightTint = NightTint.red
-
-    var body: some View {
-        Form {
-            Section {
-                preview
-                    .listRowInsets(EdgeInsets())
-            }
-            Section("Clock") {
-                Picker("Font", selection: $clockFont) {
-                    ForEach(ClockFont.allCases, id: \.self) { Text($0.name).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                Picker("Colour", selection: $clockColor) {
-                    ForEach(ClockColor.allCases, id: \.self) { Text($0.name).tag($0) }
-                }
-                if clockColor == .custom {
-                    ColorPicker("Custom colour", selection: Binding {
-                        ClockColor.custom(from: customColor)
-                    } set: { customColor = ClockColor.raw(from: $0) }, supportsOpacity: false)
-                }
-            }
-            Section {
-                Picker("Night mode", selection: $nightMode) {
-                    Text("Off").tag(NightMode.off)
-                    Text("On a Schedule").tag(NightMode.scheduled)
-                    Text("Always").tag(NightMode.always)
-                }
-                if nightMode == .scheduled {
-                    Picker("From", selection: $nightStart) {
-                        ForEach(0..<24, id: \.self) { Text(Self.hour($0)).tag($0) }
-                    }
-                    Picker("To", selection: $nightEnd) {
-                        ForEach(0..<24, id: \.self) { Text(Self.hour($0)).tag($0) }
-                    }
-                }
-                if nightMode != .off {
-                    Picker("Colour", selection: $nightTint) {
-                        Text("Red").tag(NightTint.red)
-                        Text("Grey").tag(NightTint.grey)
-                    }
-                    .pickerStyle(.segmented)
-                }
-            } header: {
-                Text("Night")
-            } footer: {
-                Text("At night Interlude hides the wallpaper and dims every card to one colour, easy on the eyes in a dark room. Red keeps your eyes adjusted to the dark.")
-                    .foregroundStyle(.secondary)
-            }
-            Section {
-                Picker("Material", selection: $style) {
-                    ForEach(GlassStyle.allCases, id: \.self) { Text($0.name).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                if style == .liquid {
-                    Picker("Tint", selection: $liquidTone) {
-                        Text("Dark").tag("dark")
-                        Text("Light").tag("light")
-                    }
-                    .pickerStyle(.segmented)
-                }
-                if style == .frosted {
-                    slider("Frost", value: $frost, low: "Clear", high: "Frosted")
-                    slider("Transparency", value: $transparency, low: "Solid", high: "See-through")
-                    slider("Tint", value: $tint, low: "None", high: "Dark")
-                }
-            } header: {
-                Text("Cards")
-            } footer: {
-                Text(style == .frosted
-                     ? "Frost sets how blurred the wallpaper behind each card is, Transparency how much of it shows through, and Tint how dark the cards are."
-                     : "Liquid Glass matches the rest of your Mac; Tint picks its dark or light look. For clear or tinted glass, go to System Settings › Appearance.")
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
-        .animation(.smooth(duration: 0.3), value: style)
-        .animation(.smooth(duration: 0.3), value: nightMode)
-        .animation(.smooth(duration: 0.3), value: clockColor)
-    }
-
-    private static func hour(_ h: Int) -> String {
-        Calendar.current.date(bySettingHour: h, minute: 0, second: 0, of: .now)!.formatted(date: .omitted, time: .shortened)
-    }
-
-    private func slider(_ title: String, value: Binding<Double>, low: String, high: String) -> some View {
-        LabeledContent(title) {
-            Slider(value: value, in: 0...1) {
-                Text(title)
-            } minimumValueLabel: {
-                Text(low).font(.caption).foregroundStyle(.secondary)
-            } maximumValueLabel: {
-                Text(high).font(.caption).foregroundStyle(.secondary)
-            }
-            .labelsHidden()
-        }
-    }
-
-    /// The real clock card over a colourful backdrop, so font, frost and transparency are easy to judge.
-    private var preview: some View {
-        let grid = Grid(size: CGSize(width: 900, height: 518))
-        return ZStack {
-            LinearGradient(colors: [.indigo, .blue, .teal], startPoint: .topLeading, endPoint: .bottomTrailing)
-            Circle().fill(.orange).frame(width: 150).offset(x: -120, y: -30)
-            Circle().fill(.pink).frame(width: 110).offset(x: 140, y: 50)
-            Text("10:41").font(.system(size: 120, weight: .black)).foregroundStyle(.white.opacity(0.35)).offset(x: 90, y: -40)
-            ClockCard(weather: weather, grid: grid)
-        }
-        .frame(height: 210)
-        .clipped()
-        .foregroundStyle(.white)
-        .environment(\.colorScheme, .dark)
-        .accessibilityLabel("Preview of the clock card")
-    }
-}
-
-private struct WallpaperSettings: View {
-    @AppStorage(AerialCatalog.selectionKey) private var wallpaper = AerialCatalog.defaultSelection
-
-    var body: some View {
-        Form {
-            Section {
-                Picker("Play", selection: $wallpaper) {
-                    Section("Shuffle") {
-                        Text("All aerials").tag("all")
-                        ForEach(AerialCatalog.categories) { Text("All \($0.name)").tag("category:\($0.id)") }
-                    }
-                    ForEach(AerialCatalog.categories) { category in
-                        Section(category.name) {
-                            ForEach(category.aerials) { Text($0.name).tag("aerial:\($0.id)") }
-                        }
-                    }
-                }
-            } footer: {
-                Text("These are the aerials from System Settings › Wallpaper. Ones you've downloaded there play from disk; the rest stream from Apple. Changes apply the next time Interlude starts.")
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
-    }
-}
-
-private struct MusicSettings: View {
-    @AppStorage(MusicLook.key) private var musicLook = MusicLook.album
-    @AppStorage("monochromeArtwork") private var monochromeArtwork = true
-
-    var body: some View {
-        Form {
-            Section {
-                Picker("Background", selection: $musicLook) {
-                    Text("Album colours").tag(MusicLook.album)
-                    Text("Wallpaper").tag(MusicLook.wallpaper)
-                }
-                .pickerStyle(.radioGroup)
-            } header: {
-                Text("While music plays")
-            } footer: {
-                Text("Album colours swaps the wallpaper for a slow backdrop made from the album art.")
-                    .foregroundStyle(.secondary)
-            }
-            Section {
-                Toggle("Monochrome album art", isOn: $monochromeArtwork)
-            } footer: {
-                Text("Shows the cover in the Now Playing card in grey and slightly see-through, to match the other cards.")
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
-    }
-}
-
-private struct NotificationSettings: View {
-    @StateObject private var model = NotificationSettingsModel()
-
-    var body: some View {
-        Form {
-            Section {
-                if model.hasAccess {
-                    Label("Full Disk Access is on", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                } else {
-                    LabeledContent("Full Disk Access is off") {
-                        Button("Open Privacy & Security…") { NotificationStore.openFullDiskAccessSettings() }
-                    }
-                }
-            } header: {
-                Text("Access")
-            } footer: {
-                Text("Interlude reads Notification Center to show a pill per app. It needs Full Disk Access to do that; restart Interlude after turning it on.")
-                    .foregroundStyle(.secondary)
-            }
-            Section {
-                if model.hidden.isEmpty {
-                    Text("No hidden apps").foregroundStyle(.secondary)
-                } else {
-                    ForEach(model.hidden, id: \.self) { bundleID in
-                        LabeledContent(NotificationPill.name(for: bundleID)) {
-                            Button("Show Again") { model.unhide(bundleID) }
-                        }
-                    }
-                }
-            } header: {
-                Text("Hidden apps")
-            } footer: {
-                Text("Right-click a notification pill and choose Never Show to add an app here. Claude's notifications are always skipped; it has its own pill.")
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
-        .onAppear { model.reload() }
-    }
-}
-
-final class NotificationSettingsModel: ObservableObject {
-    @Published var hidden: [String] = []
-    @Published var hasAccess = false
-
-    func reload() {
-        hidden = UserDefaults.standard.stringArray(forKey: NotificationStore.hiddenKey) ?? []
-        hasAccess = NotificationStore.hasAccess
-    }
-
-    func unhide(_ bundleID: String) {
-        hidden.removeAll { $0 == bundleID }
-        UserDefaults.standard.set(hidden, forKey: NotificationStore.hiddenKey)
-    }
-}
-
-/// Settings for individual widgets: World Clock cities and the focus timer's length.
-private struct WidgetSettings: View {
-    @AppStorage(WorldCity.key) private var raw = WorldCity.defaults
-    @AppStorage(FocusTimer.minutesKey) private var minutes = 25
-    private static let zones = TimeZone.knownTimeZoneIdentifiers.sorted()
-
-    var body: some View {
-        let cities = WorldCity.load(raw)
-        Form {
-            Section {
-                ForEach(cities.indices, id: \.self) { i in
-                    HStack {
-                        TextField("City \(i + 1)", text: Binding {
-                            cities[i].name
-                        } set: { edit(i) { $0.name = $1 }($0) })
-                        .labelsHidden()
-                        Picker("Time zone", selection: Binding {
-                            cities[i].zone
-                        } set: { edit(i) { $0.zone = $1 }($0) }) {
-                            ForEach(Self.zones, id: \.self) { Text($0.replacingOccurrences(of: "_", with: " ")).tag($0) }
-                        }
-                        .labelsHidden()
-                    }
-                }
-                Button("Reset to Default") { raw = WorldCity.defaults }
-                    .disabled(raw == WorldCity.defaults)
-            } header: {
-                Text("World Clock")
-            } footer: {
-                Text("Four cities, each with its own name and time zone.")
-                    .foregroundStyle(.secondary)
-            }
-            Section {
-                Picker("Length", selection: $minutes) {
-                    ForEach([5, 10, 15, 20, 25, 30, 45, 50, 60, 90], id: \.self) { Text("\($0) min").tag($0) }
-                }
-            } header: {
-                Text("Focus Timer")
-            } footer: {
-                Text("Click the timer on the Interlude screen to start or pause it; right-click it to reset. It keeps running while Interlude is closed and chimes when it ends.")
-                    .foregroundStyle(.secondary)
-            }
-            Section {
-                LabeledContent("List", value: "Your default Reminders list")
-            } header: {
-                Text("Reminders")
-            } footer: {
-                Text("Shows the first four unfinished reminders. Click a circle on the Interlude screen to complete one. Change the default list in Reminders › Settings.")
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
-    }
-
-    /// Returns a setter that changes one field of city `i` and saves the list.
-    private func edit(_ i: Int, _ change: @escaping (inout WorldCity, String) -> Void) -> (String) -> Void {
-        { value in
-            var cities = WorldCity.load(raw)
-            guard cities.indices.contains(i) else { return }
-            change(&cities[i], value)
-            raw = WorldCity.save(cities)
-        }
-    }
-}

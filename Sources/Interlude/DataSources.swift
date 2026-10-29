@@ -105,15 +105,22 @@ final class BatteryMonitor: ObservableObject {
     }
 }
 
-/// The next timed event today, from Calendar.
+/// Timed events for the next week, from Calendar.
 @MainActor
 final class CalendarStore: ObservableObject {
-    struct Event: Equatable {
+    struct Event: Equatable, Hashable {
         let title: String
         let start: Date
+        var end: Date? = nil
     }
 
+    /// The next timed event today.
     @Published private(set) var next: Event?
+    /// Timed events from now until a week ahead, soonest first.
+    @Published private(set) var upcoming: [Event] = []
+
+    /// The rest of today's timed events.
+    var today: [Event] { upcoming.filter { Calendar.current.isDateInToday($0.start) } }
     private let store = EKEventStore()
 
     func requestAccess() {
@@ -126,13 +133,14 @@ final class CalendarStore: ObservableObject {
     func refresh() {
         guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else { return }
         let now = Date()
-        let endOfDay = Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: now))!
-        let predicate = store.predicateForEvents(withStart: now, end: endOfDay, calendars: nil)
-        let upcoming = store.events(matching: predicate)
-            .filter { !$0.isAllDay }
-            .min { $0.startDate < $1.startDate }
-            .map { Event(title: $0.title ?? "Event", start: $0.startDate) }
-        if upcoming != next { Motion.animate { next = upcoming } }
+        let weekOut = Calendar.current.date(byAdding: .day, value: 7, to: Calendar.current.startOfDay(for: now))!
+        let predicate = store.predicateForEvents(withStart: now, end: weekOut, calendars: nil)
+        let events = store.events(matching: predicate)
+            .filter { !$0.isAllDay && $0.startDate >= now }
+            .sorted { $0.startDate < $1.startDate }
+            .map { Event(title: $0.title ?? "Event", start: $0.startDate, end: $0.endDate) }
+        let first = events.first { Calendar.current.isDateInToday($0.start) }
+        if events != upcoming || first != next { Motion.animate { upcoming = events; next = first } }
     }
 }
 
@@ -159,6 +167,14 @@ final class WeatherStore: NSObject, ObservableObject, CLLocationManagerDelegate 
         var id: Date { time }
     }
 
+    struct Day: Equatable, Identifiable {
+        let date: Date
+        let symbol: String
+        let high: Int
+        let low: Int
+        var id: Date { date }
+    }
+
     @Published private(set) var temperature: Int?
     @Published private(set) var symbol = "cloud"
     @Published private(set) var code = 3
@@ -167,6 +183,8 @@ final class WeatherStore: NSObject, ObservableObject, CLLocationManagerDelegate 
     @Published private(set) var high: Int?
     @Published private(set) var low: Int?
     @Published private(set) var hours: [Hour] = []
+    /// Today and the next five days.
+    @Published private(set) var days: [Day] = []
     @Published private(set) var feelsLike: Int?
     @Published private(set) var wind: Int?
     @Published private(set) var humidity: Int?
@@ -213,8 +231,8 @@ final class WeatherStore: NSObject, ObservableObject, CLLocationManagerDelegate 
         let unit = Locale.current.measurementSystem == .us ? "&temperature_unit=fahrenheit&wind_speed_unit=mph" : ""
         let url = URL(string: "https://api.open-meteo.com/v1/forecast?latitude=\(latitude)&longitude=\(longitude)"
             + "&current=temperature_2m,weather_code,is_day,apparent_temperature,wind_speed_10m,relative_humidity_2m"
-            + "&hourly=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min"
-            + "&forecast_days=2&timezone=auto&timeformat=unixtime\(unit)")!
+            + "&hourly=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min,weather_code"
+            + "&forecast_days=6&timezone=auto&timeformat=unixtime\(unit)")!
         guard let (data, _) = try? await URLSession.shared.data(from: url),
               let forecast = try? JSONDecoder().decode(Forecast.self, from: data)
         else { return }
@@ -229,7 +247,14 @@ final class WeatherStore: NSObject, ObservableObject, CLLocationManagerDelegate 
                      symbol: Self.symbol(code: h.weather_code[i], isDay: h.is_day[i] == 1),
                      temperature: Int(h.temperature_2m[i].rounded()))
             }
+        let d = forecast.daily
+        let daily = d.time.indices.compactMap { i -> Day? in
+            guard i < d.weather_code.count, i < d.temperature_2m_max.count, i < d.temperature_2m_min.count else { return nil }
+            return Day(date: Date(timeIntervalSince1970: d.time[i]), symbol: Self.symbol(code: d.weather_code[i], isDay: true),
+                       high: Int(d.temperature_2m_max[i].rounded()), low: Int(d.temperature_2m_min[i].rounded()))
+        }
         Motion.animate {
+            days = daily
             temperature = Int(c.temperature_2m.rounded())
             code = c.weather_code
             isDay = c.is_day == 1
@@ -260,6 +285,8 @@ final class WeatherStore: NSObject, ObservableObject, CLLocationManagerDelegate 
             let is_day: [Int]
         }
         struct Daily: Decodable {
+            let time: [Double]
+            let weather_code: [Int]
             let temperature_2m_max: [Double]
             let temperature_2m_min: [Double]
         }
@@ -296,6 +323,63 @@ final class WeatherStore: NSObject, ObservableObject, CLLocationManagerDelegate 
         case 71...77, 85, 86: "Snow"
         case 95...99: "Thunderstorms"
         default: "Cloudy"
+        }
+    }
+}
+
+// MARK: - Sample data for the card renderer
+
+extension BatteryMonitor {
+    /// Debug: a Mac and three devices, for the card renderer.
+    func preview() {
+        level = 0.68
+        devices = [Device(name: "AirPods Pro", level: 0.6, symbol: "airpodspro"),
+                   Device(name: "Mouse", level: 0.35, symbol: "magicmouse"),
+                   Device(name: "Keyboard", level: 0.8, symbol: "keyboard")]
+    }
+}
+
+extension CalendarStore {
+    /// Debug: a few events this week, for the card renderer.
+    func preview() {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: .now)
+        func at(_ day: Int, _ hour: Int, _ minute: Int = 0) -> Date {
+            cal.date(byAdding: DateComponents(day: day, hour: hour, minute: minute), to: today)!
+        }
+        upcoming = [
+            Event(title: "Standup", start: at(0, 23, 0), end: at(0, 23, 15)),
+            Event(title: "Design review", start: at(0, 23, 30), end: at(0, 23, 59)),
+            Event(title: "1:1 with Asha", start: at(1, 10), end: at(1, 10, 30)),
+            Event(title: "Gym", start: at(1, 19, 30)),
+            Event(title: "Flight to Mumbai", start: at(3, 7, 40)),
+        ]
+        next = upcoming.first
+    }
+}
+
+extension WeatherStore {
+    /// Debug: a clear night in Pune, for the card renderer.
+    func preview() {
+        city = "Pune"
+        temperature = 25
+        code = 0
+        isDay = false
+        symbol = Self.symbol(code: 0, isDay: false)
+        high = 31
+        low = 22
+        feelsLike = 27
+        wind = 9
+        humidity = 64
+        let now = Date.now
+        let codes = [0, 0, 1, 3, 3, 2]
+        hours = (0..<6).map { i in
+            Hour(time: now.addingTimeInterval(Double(i) * 3600), symbol: Self.symbol(code: codes[i], isDay: false), temperature: 25 - i / 2)
+        }
+        let dayCodes = [0, 0, 2, 61, 3, 1]
+        days = (0..<6).map { i in
+            Day(date: Calendar.current.date(byAdding: .day, value: i, to: now)!, symbol: Self.symbol(code: dayCodes[i], isDay: true),
+                high: 31 - i % 3, low: 22 - i % 2)
         }
     }
 }

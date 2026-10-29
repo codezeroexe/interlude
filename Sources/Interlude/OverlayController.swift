@@ -9,18 +9,30 @@ final class OverlayModel {
     let calendar = CalendarStore()
     let aerial = AerialPlayer()
     let weather = WeatherStore()
-    let nowPlaying = NowPlaying()
-    let notifications = NotificationStore()
+    let nowPlaying: NowPlaying
     let reminders = ReminderStore()
     let timer = FocusTimer()
     let night = NightMonitor()
     let entrance = Entrance()
+
+    init(nowPlaying: NowPlaying? = nil) { self.nowPlaying = nowPlaying ?? NowPlaying() }
 }
 
 /// Owns the full-screen window: shows it on idle, hides it on Esc or a click on the wallpaper.
 @MainActor
 final class OverlayController {
     let model = OverlayModel()
+
+    /// Sample data for the welcome window's previews, which show before any access is granted.
+    /// Shares the real Now Playing, so the song playing now shows; the sample song otherwise.
+    lazy var demo: OverlayModel = {
+        let demo = OverlayModel(nowPlaying: model.nowPlaying)
+        demo.battery.preview()
+        demo.calendar.preview()
+        demo.weather.preview()
+        demo.reminders.preview()
+        return demo
+    }()
 
     private var window: OverlayWindow?
     private var keyMonitor: Any?
@@ -48,7 +60,6 @@ final class OverlayController {
         model.reminders.refresh()
         model.night.check()
         model.nowPlaying.start()
-        model.notifications.start()
         model.aerial.play()
 
         // A non-activating panel takes key focus without waiting for macOS to let the app come forward,
@@ -95,7 +106,6 @@ final class OverlayController {
             w.orderOut(nil)
             model.aerial.pause()
             model.nowPlaying.stop()
-            model.notifications.stop()
             model.nowPlaying.requestPermissions()
         }
     }
