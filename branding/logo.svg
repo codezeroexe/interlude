@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <title>Interlude</title>
+  <defs>
+    <!-- Dusk sky, like the aerial wallpapers -->
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0B1430"/>
+      <stop offset="0.55" stop-color="#2E2A63"/>
+      <stop offset="0.82" stop-color="#8A4E7A"/>
+      <stop offset="1" stop-color="#F0A070"/>
+    </linearGradient>
+    <!-- Light rising in the gap between the bars -->
+    <radialGradient id="glow" cx="512" cy="760" r="300" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFD9A8" stop-opacity="0.95"/>
+      <stop offset="0.35" stop-color="#F7A877" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#F7A877" stop-opacity="0"/>
+    </radialGradient>
+    <!-- Glass bars: bright at the top, see-through below -->
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.55"/>
+    </linearGradient>
+    <clipPath id="tile"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath>
+  </defs>
+  <g clip-path="url(#tile)">
+    <rect x="100" y="100" width="824" height="824" fill="url(#sky)"/>
+    <circle cx="512" cy="760" r="300" fill="url(#glow)"/>
+    <rect x="377" y="300" width="110" height="424" rx="55" fill="url(#glass)"/>
+    <rect x="537" y="300" width="110" height="424" rx="55" fill="url(#glass)"/>
+  </g>
+  <rect x="100.5" y="100.5" width="823" height="823" rx="184.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.18"/>
+</svg>

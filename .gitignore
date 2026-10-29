@@ -1,0 +1,18 @@
+# Your global git ignore (~/.config/git/ignore) ignores every file; let this repo track files again.
+!*
+!*/
+
+# Build output
+.build/
+.build-release/
+build/
+
+# Local only: design references, editor and Claude settings
+reference/
+.claude/
+.DS_Store
+
+# Not ours to share: Nothing's fonts (proprietary) and Anthropic's logo
+Fonts/NDot*
+Fonts/NType*
+claude-mark.svg
