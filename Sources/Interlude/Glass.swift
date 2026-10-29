@@ -59,14 +59,54 @@ struct GlassModifier: ViewModifier {
     @AppStorage(GlassStyle.transparencyKey) private var transparency = GlassStyle.defaultTransparency
     @AppStorage(GlassStyle.tintKey) private var tint = GlassStyle.defaultTint
     @Environment(\.plainCards) private var plain
+    @Environment(\.frostBackdrop) private var backdrop
     @AppStorage(GlassStyle.liquidToneKey) private var liquidTone = "dark"
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         if plain {
-            content.background(shape.fill(.white.opacity(0.1)))
+            drawn(content, shape)
         } else {
             styled(content, shape)
+        }
+    }
+
+    /// Off screen, system blur and Liquid Glass don't draw. This draws the same look by hand: a blurred
+    /// copy of the wallpaper still behind the card (when there is one), the tint and, for Liquid Glass, the rim.
+    private func drawn(_ content: Content, _ shape: RoundedRectangle) -> some View {
+        let u = shadowRadius / 2.5
+        let liquid = style == .liquid
+        return content.background {
+            ZStack {
+                if let backdrop, let still = PreviewBackdrop.image {
+                    GeometryReader { geo in
+                        let frame = geo.frame(in: .named(FrostBackdrop.space))
+                        // The still is pre-blurred, since window captures drop SwiftUI blurs.
+                        let shown = max(backdrop.width / still.size.width, backdrop.height / still.size.height)
+                        Image(nsImage: PreviewBackdrop.blurred((liquid ? 14 : 4 + 76 * frost) * u / 14 / shown))
+                            .resizable().scaledToFill()
+                            .frame(width: backdrop.width, height: backdrop.height)
+                            .clipped()
+                            .offset(x: -frame.minX, y: -frame.minY)
+                    }
+                }
+                if liquid {
+                    shape.fill(liquidTone == "light" ? Color.white.opacity(0.14) : Color.black.opacity(0.32))
+                } else {
+                    shape.fill(Color(white: 0.1).opacity(0.7 * (1 - transparency)))
+                    shape.fill(.white.opacity(0.06))
+                    shape.fill(.black.opacity(0.6 * tint))
+                }
+            }
+            .clipShape(shape)
+            .overlay {
+                if liquid {
+                    shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.55), .white.opacity(0.06), .white.opacity(0.22)],
+                                                      startPoint: .topLeading, endPoint: .bottomTrailing),
+                                       lineWidth: max(1, 0.09 * u))
+                }
+            }
+            .background(shape.fill(.black.opacity(0.01)).shadow(color: .black.opacity(0.22), radius: shadowRadius, y: shadowY))
         }
     }
 
@@ -182,6 +222,29 @@ final class FrostNSView: NSVisualEffectView {
     }
 }
 
+/// Marks a view as the frame of a wallpaper still, so plain cards inside it can blur their own copy of it.
+enum FrostBackdrop {
+    static let space = "frostBackdrop"
+}
+
+private struct FrostBackdropKey: EnvironmentKey {
+    static let defaultValue: CGSize? = nil
+}
+
+extension View {
+    /// This view is a wallpaper still's frame, of `size`. Plain cards inside it blur that still.
+    func frostBackdrop(_ size: CGSize?) -> some View {
+        environment(\.frostBackdrop, size).coordinateSpace(name: FrostBackdrop.space)
+    }
+
+    /// The same, for a view filling the space it's offered.
+    func frostBackdrop(_ on: Bool = true) -> some View {
+        GeometryReader { geo in
+            frame(width: geo.size.width, height: geo.size.height).frostBackdrop(on ? geo.size : nil)
+        }
+    }
+}
+
 private struct PlainCardsKey: EnvironmentKey {
     static let defaultValue = false
 }
@@ -207,7 +270,13 @@ extension EnvironmentValues {
         set { self[PreviewMusicKey.self] = newValue }
     }
 
-    /// Off-screen rendering can't draw glass, so cards get a plain fill instead.
+    /// The size of the wallpaper still behind the cards, in `FrostBackdrop.space`.
+    var frostBackdrop: CGSize? {
+        get { self[FrostBackdropKey.self] }
+        set { self[FrostBackdropKey.self] = newValue }
+    }
+
+    /// Off-screen rendering can't draw glass, so cards draw it by hand instead.
     var plainCards: Bool {
         get { self[PlainCardsKey.self] }
         set { self[PlainCardsKey.self] = newValue }

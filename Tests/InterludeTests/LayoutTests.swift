@@ -21,12 +21,4 @@ struct LayoutTests {
         do { let ok = layout.move(.battery, to: cell(4, 0)); #expect(ok) } // swaps with calendar
         #expect(layout.origin(of: .calendar) == cell(3, 0))
     }
-
-    @Test func pillsUseTopRowThenBottomRow() {
-        #expect(standard.pillsRun?.row == 0 && standard.pillsRun?.cols == 0...2)
-        var layout = standard
-        layout.move(.clock, to: cell(0, 0))
-        layout.move(.nowPlaying, to: cell(2, 0))
-        #expect(layout.pillsRun?.row == 2)
-    }
 }

@@ -1,3 +1,4 @@
+import CoreImage
 import SwiftUI
 
 /// A card on the standby screen.
@@ -101,7 +102,7 @@ struct Cell: Hashable {
 
 /// Where each shown widget sits on the grid that covers the whole screen (3 rows; the column count
 /// comes from the screen's shape, see `Grid`), and its size and style. Widgets not in `origins` are on
-/// the shelf, not shown. The pills go in the free space the widgets leave.
+/// the shelf, not shown.
 /// Stored as text, e.g. "5|battery@3,0;clock@3,1,L,1" (column, row, size, style). Size and style are
 /// optional, so layouts saved before widgets had sizes still load.
 struct WidgetLayout: Equatable, RawRepresentable {
@@ -288,25 +289,6 @@ struct WidgetLayout: Equatable, RawRepresentable {
         guard let o = origins[widget] else { return false }
         return move(widget, to: Cell(col: o.col + dx, row: o.row + dy))
     }
-
-    /// Where the pills go: the longest run of free cells in the top row, else the bottom row,
-    /// else the middle one. Nil only if every cell is taken.
-    var pillsRun: (row: Int, cols: ClosedRange<Int>)? {
-        for row in [0, rows - 1] + Array(1..<max(1, rows - 1)) {
-            var best: ClosedRange<Int>?
-            var start: Int?
-            for col in 0...columns {
-                let free = col < columns && occupant(of: Cell(col: col, row: row)) == nil
-                if free, start == nil { start = col }
-                if !free, let s = start {
-                    if (col - 1) - s > (best.map { $0.upperBound - $0.lowerBound } ?? -1) { best = s...(col - 1) }
-                    start = nil
-                }
-            }
-            if let best { return (row, best) }
-        }
-        return nil
-    }
 }
 
 /// A saved layout for one situation. Music and Night are used only when switched on in Settings.
@@ -331,25 +313,6 @@ enum LayoutProfile: String, CaseIterable, Identifiable {
         if night, d.bool(forKey: LayoutProfile.night.enabledKey) { return .night }
         if music, d.bool(forKey: LayoutProfile.music.enabledKey) { return .music }
         return .standard
-    }
-}
-
-extension Grid {
-    /// The pills' area and how they line up in it: at the top of a top or middle row, at the bottom of
-    /// the bottom row; against the right edge when the free space touches it and not the left one.
-    func pillsArea(_ layout: WidgetLayout) -> (x: CGFloat, width: CGFloat, y: CGFloat, alignment: Alignment) {
-        guard let run = layout.pillsRun else { return (margin, 0, margin, .topLeading) }
-        let left = x(run.cols.lowerBound)
-        let width = x(run.cols.upperBound) + cw - left
-        let trailing = run.cols.upperBound == layout.columns - 1 && run.cols.lowerBound > 0
-        let bottom = run.row == layout.rows - 1
-        let alignment: Alignment = switch (bottom, trailing) {
-        case (false, false): .topLeading
-        case (false, true): .topTrailing
-        case (true, false): .bottomLeading
-        case (true, true): .bottomTrailing
-        }
-        return (left, width, y(run.row), alignment)
     }
 }
 
@@ -462,7 +425,24 @@ final class DragState: ObservableObject {
 
 /// The wallpaper still behind card previews in Settings; a dusk gradient if it's missing.
 struct PreviewBackdrop: View {
-    private static let image = Bundle.main.url(forResource: "backdrop", withExtension: "jpg").flatMap(NSImage.init(contentsOf:))
+    /// The renderer swaps this for other wallpapers.
+    static var image = Bundle.main.url(forResource: "backdrop", withExtension: "jpg").flatMap(NSImage.init(contentsOf:)) {
+        didSet { blurs = [:] }
+    }
+    private static var blurs: [Int: NSImage] = [:]
+
+    /// The still, blurred by `radius` of its own pixels. For hand-drawn glass in off-screen renders.
+    static func blurred(_ radius: CGFloat) -> NSImage {
+        guard let image, let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return NSImage() }
+        let key = Int(radius.rounded())
+        if let done = blurs[key] { return done }
+        let input = CIImage(cgImage: cg)
+        let output = input.clampedToExtent().applyingGaussianBlur(sigma: Double(key) / 2).cropped(to: input.extent)
+        guard let out = CIContext().createCGImage(output, from: input.extent) else { return image }
+        let result = NSImage(cgImage: out, size: image.size)
+        blurs[key] = result
+        return result
+    }
 
     var body: some View {
         if let image = Self.image {
@@ -515,7 +495,6 @@ private struct ScreenPreview: View {
     @ObservedObject private var drag = sharedDrag
 
     var body: some View {
-        let pills = grid.pillsArea(layout)
         ZStack(alignment: .topLeading) {
             // The real cards on a wallpaper still, as standby will look.
             PreviewBackdrop()
@@ -533,17 +512,6 @@ private struct ScreenPreview: View {
                     .offset(x: grid.x(cell.col), y: grid.y(cell.row))
             }
 
-            HStack(spacing: grid.u) {
-                ForEach(0..<2, id: \.self) { _ in
-                    Capsule().fill(.black.opacity(0.25)).frame(width: 9 * grid.u, height: 3.2 * grid.u)
-                        .overlay(Capsule().strokeBorder(.white.opacity(0.35), lineWidth: 1))
-                }
-            }
-            .frame(width: max(pills.width, 1), height: grid.s, alignment: pills.alignment)
-            .clipped()
-            .offset(x: pills.x, y: pills.y)
-            .accessibilityHidden(true)
-
             if let w = drag.widget, let c = drag.cell {
                 let o = layout.landing(w, on: c)
                 RoundedRectangle(cornerRadius: grid.radius, style: .continuous)
@@ -556,6 +524,7 @@ private struct ScreenPreview: View {
             ForEach(layout.placed) { tile($0, at: layout.origin(of: $0)!) }
         }
         .frame(width: grid.width, height: grid.column + 2 * grid.margin, alignment: .topLeading)
+        .frostBackdrop(CGSize(width: grid.width, height: grid.column + 2 * grid.margin))
         .frame(maxWidth: .infinity)
         .onDrop(of: [.text], delegate: GridDrop(layout: $layout, drag: drag, grid: grid))
         .animation(Motion.layout, value: layout)

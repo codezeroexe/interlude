@@ -18,6 +18,10 @@ struct Track {
     var sampledAt = Date.now
 
     var id: String { "\(player.rawValue)|\(title)|\(artist)" }
+
+    /// What the Now Playing card shows when nothing plays.
+    static let idle = Track(player: .music, title: "Not Playing", artist: "Apple Music", duration: 0,
+                            position: 0, playing: false, artworkURL: nil)
 }
 
 @MainActor
@@ -31,8 +35,13 @@ final class NowPlaying: ObservableObject {
         self.track = track
         self.artwork = artwork
     }
+    /// Debug: README screenshots show the empty card, never a song or the one playing now.
+    static var screenshots = false
+
     /// A made-up track for previews in Settings while nothing plays. Never polls.
-    static let sample: NowPlaying = {
+    static var sample: NowPlaying { screenshots ? empty : filled }
+    private static let empty = NowPlaying()
+    private static let filled: NowPlaying = {
         let sample = NowPlaying()
         // Rings like a speaker cone, so the cover styles have something to show.
         let art = NSImage(size: NSSize(width: 600, height: 600), flipped: false) { rect in
@@ -61,7 +70,7 @@ final class NowPlaying: ObservableObject {
     /// Polls once a second while the overlay or Settings is showing. Each `start` needs its own `stop`.
     func start() {
         users += 1
-        guard timer == nil else { return }
+        guard timer == nil, !Self.screenshots else { return }
         poll()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.poll() }

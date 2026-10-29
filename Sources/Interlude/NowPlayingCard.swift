@@ -8,15 +8,17 @@ struct NowPlayingCard: View {
     var size: WidgetSize = .medium
     var style = 0
 
+    /// Nothing playing, or paused for over 5 minutes: the card stays, saying so.
+    private var idle: Bool { !nowPlaying.visible }
+
     var body: some View {
-        if let track = nowPlaying.track {
-            let shape = RoundedRectangle(cornerRadius: grid.radius, style: .continuous)
-            content(track)
-                .animation(.easeInOut(duration: 0.6), value: track.id)
-                .frame(width: grid.w(size), height: grid.h(size))
-                .clipShape(shape) // covers that fill the card stop at its rounded edge
-                .glass(grid)
-        }
+        let track = idle ? Track.idle : nowPlaying.track!
+        let shape = RoundedRectangle(cornerRadius: grid.radius, style: .continuous)
+        content(track)
+            .animation(.easeInOut(duration: 0.6), value: track.id)
+            .frame(width: grid.w(size), height: grid.h(size))
+            .clipShape(shape) // covers that fill the card stop at its rounded edge
+            .glass(grid)
     }
 
     @ViewBuilder private func content(_ track: Track) -> some View {
@@ -105,7 +107,7 @@ struct NowPlayingCard: View {
     private func classicText(_ track: Track) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Spacer(minLength: 0)
-            titles(track, title: 2.4, artist: 2.1, label: true)
+            titles(track, title: 2.4, artist: 2.1, label: !idle)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .overlay(alignment: .topTrailing) { controls(track, 2.2) }
@@ -146,7 +148,7 @@ struct NowPlayingCard: View {
 
     @ViewBuilder private var artwork: some View {
         Group {
-            if let image = nowPlaying.artwork {
+            if !idle, let image = nowPlaying.artwork {
                 Image(nsImage: image).resizable().scaledToFill()
                     .blendMode(monochrome ? .luminosity : .normal)
                     .opacity(monochrome ? 0.6 : 1)
@@ -168,6 +170,7 @@ struct NowPlayingCard: View {
             control("forward.fill", .next)
         }
         .font(.system(size: points * grid.u))
+        .opacity(idle ? 0.4 : 1)
     }
 
     private func playPause(_ track: Track) -> some View {

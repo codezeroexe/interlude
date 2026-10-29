@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/media/banner.webp" alt="Interlude: a calm screen for when you step away. The large clock, music, calendar and battery cards on an aerial wallpaper." width="100%">
+  <img src="docs/media/banner.webp" alt="Interlude: a calm screen for when you step away. The logo and title beside the welcome window, a standby screen over Yosemite, and floating Now Playing, battery and weather cards." width="100%">
 </p>
 
 <p align="center">
@@ -23,16 +23,16 @@ It's StandBy for the Mac: something worth glancing at from across the room, inst
 ## See it
 
 <p align="center">
-  <img src="docs/media/standby.webp" alt="The standby screen: next event pill, Now Playing, calendar, battery and a large clock on an aerial" width="100%">
+  <img src="docs/media/standby.webp" alt="The standby screen on a MacBook: Now Playing, calendar, battery and a large clock in glass cards over a Hawaiian coastline" width="100%">
 </p>
 
 <table>
 <tr>
-<td width="55%"><img src="docs/media/welcome-1.webp" alt="The welcome window, showing the standby screen built from the real cards"></td>
+<td width="55%"><img src="docs/media/welcome.webp" alt="The welcome window, showing the standby screen built from the real cards"></td>
 <td><b>A short welcome</b><br><br>Five quick steps on first launch: when Interlude starts, a starting layout, and which cards may read your calendar, reminders, location and music. Every step can be skipped, and Settings › Privacy can show it again.</td>
 </tr>
 <tr>
-<td><img src="docs/media/welcome-3.webp" alt="Picking a starting layout: Minimal, Your Day or At the Desk"></td>
+<td><img src="docs/media/starter-layouts.webp" alt="Picking a starting layout: Minimal, Your Day or At the Desk"></td>
 <td><b>Pick a layout</b><br><br>Minimal, Your Day or At the Desk. Each thumbnail is drawn with the real cards, so what you pick is what you get.</td>
 </tr>
 <tr>
@@ -41,19 +41,32 @@ It's StandBy for the Mac: something worth glancing at from across the room, inst
 </tr>
 <tr>
 <td><img src="docs/media/settings-appearance.webp" alt="Settings › Appearance: clock font and colour, night mode and card material, with a live preview"></td>
-<td><b>Appearance</b><br><br>Clock font and colour (including one that matches the album art), a night mode that dims everything to red or grey, and frosted or Liquid Glass cards. The preview above updates as you change things.</td>
+<td><b>Appearance</b><br><br>Clock font and colour (including one that matches the album art), a night mode that dims everything to red or grey, and frosted or Liquid Glass cards. The preview updates as you change things.</td>
 </tr>
 </table>
 
-<sub>Screenshots are rendered by the app itself with sample data. On screen, the cards and windows are see-through glass.</sub>
+<table>
+<tr>
+<td width="33%"><img src="docs/media/settings-music.webp" alt="Settings › Music: what sits behind the Now Playing card, and which players Interlude may read"></td>
+<td width="33%"><img src="docs/media/settings-widgets.webp" alt="Settings › Widgets: world clock cities, focus timer length and reminders list"></td>
+<td width="33%"><img src="docs/media/settings-wallpaper.webp" alt="Settings › Wallpaper: aerials from System Settings, by category"></td>
+</tr>
+<tr>
+<td align="center"><sub>Music</sub></td>
+<td align="center"><sub>Widgets</sub></td>
+<td align="center"><sub>Wallpaper</sub></td>
+</tr>
+</table>
+
+<sub>Screenshots are drawn by the app itself, with sample data.</sub>
 
 ## Features
 
 - **Clock** in four sizes and several styles, in SF Pro or a serif, in white, a custom colour or the album's colour.
 - **Weather** for your approximate location, now and for the next hours or days.
-- **Calendar**: a month, today's agenda or the next event, plus a pill for what's next.
+- **Calendar**: a month, today's agenda or the next event.
 - **Reminders** from your default list. Click a circle to complete one.
-- **Now playing** for Music and Spotify. Space plays or pauses, ← and → skip tracks.
+- **Now playing** for Apple Music and Spotify. Space plays or pauses, ← and → skip tracks. When nothing plays, the card says so.
 - **World clock** with four cities, and a **focus timer** that keeps running while Interlude is closed.
 - **Battery** for your Mac and connected devices.
 - **Night mode** on a schedule or always: no wallpaper, every card dimmed to red or grey.

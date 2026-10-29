@@ -484,6 +484,7 @@ private struct MusicSettings: View {
             // The real Now Playing card with the song playing now (a sample one when nothing plays).
             CardPreview(model: model, widget: .nowPlaying, size: .medium, style: 0, grid: grid)
                 .frame(maxWidth: .infinity)
+                .frostBackdrop(musicLook != .album)
                 .frame(height: 150)
                 // What sits behind the card while music plays: the album's colours, or the wallpaper.
                 .background {
@@ -539,6 +540,7 @@ private struct WidgetSettings: View {
                 CardPreview(model: model, widget: .reminders, size: .small, style: 0, grid: grid)
             }
             .frame(maxWidth: .infinity)
+            .frostBackdrop()
             .frame(height: grid.s + 44)
             .background(PreviewBackdrop())
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))

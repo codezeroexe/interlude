@@ -131,20 +131,7 @@ struct OverlayView: View {
     }
 }
 
-/// The next calendar event, in the space the widgets leave free.
-struct PillsRow: View {
-    @ObservedObject var calendar: CalendarStore
-    let grid: Grid
-
-    var body: some View {
-        if calendar.next != nil {
-            NextEventPill(calendar: calendar, grid: grid)
-                .transition(Motion.pop)
-        }
-    }
-}
-
-/// Widgets at their cells from Settings › Layout, and the pills in the space they leave free.
+/// Widgets at their cells from Settings › Layout.
 /// Now Playing keeps its cell while hidden, so nothing jumps when music stops.
 struct WidgetCanvas: View {
     let model: OverlayModel
@@ -182,21 +169,14 @@ struct WidgetCanvas: View {
         case .night: nightLayout
         }
         let layout = stored.fitted(to: grid.columns, rows: grid.rows)
-        let pills = grid.pillsArea(layout)
         ZStack(alignment: .topLeading) {
-            PillsRow(calendar: model.calendar, grid: grid)
-                .rise(0, grid)
-                .frame(width: pills.width, height: grid.s, alignment: pills.alignment)
-                .offset(x: pills.x, y: pills.y)
             ForEach(layout.placed) { widget in
-                if widget != .nowPlaying || nowPlaying.visible {
-                    let o = layout.origin(of: widget)!
-                    WidgetCardView(model: model, widget: widget, size: layout.size(of: widget), style: layout.style(of: widget), grid: grid)
-                        .hoverDetail(detail(widget), grid: grid)
-                        .rise(1 + (Widget.allCases.firstIndex(of: widget) ?? 0), grid)
-                        .transition(Motion.pop)
-                        .offset(x: grid.x(o.col), y: grid.y(o.row))
-                }
+                let o = layout.origin(of: widget)!
+                WidgetCardView(model: model, widget: widget, size: layout.size(of: widget), style: layout.style(of: widget), grid: grid)
+                    .hoverDetail(detail(widget), grid: grid)
+                    .rise(1 + (Widget.allCases.firstIndex(of: widget) ?? 0), grid)
+                    .transition(Motion.pop)
+                    .offset(x: grid.x(o.col), y: grid.y(o.row))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -755,26 +735,6 @@ private struct DayCell: View {
             .frame(width: side, height: side)
             .background { if isToday { Circle().fill(.white) } }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-struct NextEventPill: View {
-    @ObservedObject var calendar: CalendarStore
-    let grid: Grid
-
-    var body: some View {
-        // Empty state: no event, no pill.
-        if let event = calendar.next {
-            HStack(spacing: 1 * grid.u) {
-                Image(systemName: "calendar")
-                Text(event.title).lineLimit(1)
-                Text(event.start, format: .dateTime.hour().minute()).opacity(0.7)
-            }
-            .font(.system(size: 1.8 * grid.u, weight: .semibold))
-            .padding(.horizontal, 2 * grid.u)
-            .padding(.vertical, 1.2 * grid.u)
-            .glass(grid, capsule: true)
-        }
     }
 }
 

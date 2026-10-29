@@ -192,6 +192,7 @@ struct StandbyScene: View {
                 .colorMultiply(night?.color ?? .white)
                 .opacity(night == nil ? 1 : 0.7)
             }
+            .frostBackdrop(night == nil ? geo.size : nil)
             .foregroundStyle(.white)
         }
         .clipped()

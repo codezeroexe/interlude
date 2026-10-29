@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// One motion system for the whole overlay. Every change that moves, adds or removes something on screen
-/// goes through `Motion.animate`, so layout shifts (pills arriving, the now
+/// goes through `Motion.animate`, so layout shifts (cards arriving, the now
 /// playing card appearing) all move with the same spring instead of jumping.
 enum Motion {
     private static var reduced: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
@@ -16,7 +16,7 @@ enum Motion {
         withAnimation(animation, change)
     }
 
-    /// Small items such as pills pop in and out.
+    /// Small items pop in and out.
     static var pop: AnyTransition {
         reduced ? .opacity : .opacity.combined(with: .scale(scale: 0.85))
     }
