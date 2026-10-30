@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.1-E9E4DA?style=flat-square&labelColor=17171a">
+  <img alt="version" src="https://img.shields.io/badge/version-0.2-E9E4DA?style=flat-square&labelColor=17171a">
   <img alt="platform" src="https://img.shields.io/badge/macOS-15%2B-9CC8F0?style=flat-square&labelColor=17171a">
   <img alt="type" src="https://img.shields.io/badge/menu%20bar%20app-no%20Dock%20icon-C8B6E2?style=flat-square&labelColor=17171a">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-B5D6B2?style=flat-square&labelColor=17171a">
@@ -93,10 +93,35 @@ take over the background. When nothing plays, the widget says so.
 ## And everything around them
 
 - **Liquid Glass or frosted** widgets, dark or light, with the blur and tint you like.
-- **Every aerial** from System Settings › Wallpaper: one you pick, a category, or a new one each time.
+- **Your own mix of aerials** from System Settings › Wallpaper. Tick whole groups or single aerials;
+  they shuffle, and none repeats until every one has played.
 - **Night mode** on a schedule or always: the wallpaper goes dark and every widget dims to red or grey.
 - **Start rules**: only while charging, wait during video calls and films, pick the display.
 - **Lives in the menu bar**, with no Dock icon.
+
+## What's new in 0.2
+
+- **Wallpaper:** pick any mix of aerials with checkmarks instead of one aerial or one group. Groups fold
+  away, and the shuffle plays each pick once before any repeat, even across restarts.
+- **Clock faces:** analog clocks show only 12, 3, 6 and 9, with shorter hands that no longer cover
+  the numbers, and no second hand.
+- **Widgets:** Reminders end with "…" when more are waiting, the Columns style gets its title and
+  count, Weather Details shows the next hours, and every Focus Timer style has a play button.
+- **Now Playing:** with no music playing, the buttons that would do nothing are dimmed.
+- **Settings and welcome:** previews fade between looks, the World Clock offset no longer gets cut
+  off, and the welcome window centres its text.
+- **Lighter on your Mac:** the widgets redraw only when what they show changes. Clocks tick once a
+  minute, the music background is capped at 30 fps, and the background timers stop while Interlude
+  is closed.
+
+## Download
+
+Get `Interlude-0.2.dmg` from [Releases](https://github.com/codezeroexe/interlude/releases), open it
+and drag Interlude to Applications.
+
+The app isn't notarized by Apple, so the first time you open it macOS says it can't check it for
+malware. Click Done, then go to System Settings › Privacy & Security and click **Open Anyway** next
+to Interlude. You only need to do this once.
 
 ## Requirements
 
@@ -114,7 +139,7 @@ This builds `build/Interlude.app`. Move it to `/Applications` and open it.
 The script signs the app with a local signing identity if you have one, and otherwise with an ad-hoc
 signature. With an ad-hoc signature, macOS may ask for permissions again after each rebuild.
 
-Run the tests with:
+Run the tests with (this needs Xcode, not only the command line tools):
 
 ```bash
 swift test
