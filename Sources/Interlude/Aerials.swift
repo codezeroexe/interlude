@@ -115,21 +115,41 @@ enum AerialCatalog {
     }
 }
 
-/// Plays a random aerial from the chosen wallpaper setting, muted, and moves to another when one ends.
+/// Plays random aerials from the chosen wallpaper setting, muted. Two players take turns: the next video
+/// waits paused on the hidden one, then crossfades in over the last seconds of the current one,
+/// so there is never a hard cut (also when the setting is a single looping aerial).
 @MainActor
 final class AerialPlayer {
-    let player = AVPlayer()
+    private let players = [AVPlayer(), AVPlayer()]
+    let layers: [AVPlayerLayer]
+    private var front = 0
+    private var back: Int { 1 - front }
+    private var crossfading = false
     private var videos: [URL] = []
     private var selection = ""
-    private var endObserver: NSObjectProtocol?
+    private var observers: [Any] = []
+    private static let fade = 1.5
 
     init() {
-        player.isMuted = true
-        player.preventsDisplaySleepDuringVideoPlayback = false
-        endObserver = NotificationCenter.default.addObserver(
+        layers = players.map { player in
+            player.isMuted = true
+            player.preventsDisplaySleepDuringVideoPlayback = false
+            let layer = AVPlayerLayer(player: player)
+            layer.videoGravity = .resizeAspectFill
+            layer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+            return layer
+        }
+        layers[1].opacity = 0
+        observers.append(NotificationCenter.default.addObserver(
             forName: AVPlayerItem.didPlayToEndTimeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.next() }
+        ) { [weak self] note in
+            let item = (note.object as AnyObject?).map(ObjectIdentifier.init)
+            MainActor.assumeIsolated { self?.ended(item) }
+        })
+        for (i, player) in players.enumerated() {
+            observers.append(player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main) { [weak self] time in
+                MainActor.assumeIsolated { self?.tick(player: i, at: time) }
+            })
         }
     }
 
@@ -139,33 +159,87 @@ final class AerialPlayer {
         if current != selection {
             selection = current
             videos = AerialCatalog.videos(for: current)
-            next()
-        } else if player.currentItem == nil {
-            next()
+            restart()
+        } else if players[front].currentItem == nil {
+            restart()
         }
-        player.play()
+        players[front].play()
+        if crossfading { players[back].play() } // the outgoing video finishes its fade
     }
 
     func pause() {
-        player.pause()
+        players.forEach { $0.pause() }
     }
 
-    private func next() {
+    /// Hard switch for the first open or a new setting; the overlay's own fade covers it.
+    private func restart() {
+        crossfading = false
+        load(into: front)
+        load(into: back)
+        layers.forEach { $0.removeAllAnimations() }
+        layers[front].opacity = 1
+        layers[back].opacity = 0
+    }
+
+    /// Queues a random video, paused at its start, so it is ready when its turn comes.
+    private func load(into i: Int) {
         guard let url = videos.randomElement() else { return }
-        player.replaceCurrentItem(with: AVPlayerItem(url: url))
-        player.play()
+        players[i].replaceCurrentItem(with: AVPlayerItem(url: url))
+    }
+
+    private func tick(player i: Int, at time: CMTime) {
+        guard i == front, !crossfading, let item = players[i].currentItem, item.duration.isNumeric,
+              time.seconds >= item.duration.seconds - Self.fade else { return }
+        crossfade()
+    }
+
+    /// Fallback for a video whose length was never known, so the crossfade did not start early.
+    private func ended(_ item: ObjectIdentifier?) {
+        guard !crossfading, let current = players[front].currentItem, item == ObjectIdentifier(current) else { return }
+        crossfade()
+    }
+
+    private func crossfade() {
+        guard players[back].currentItem != nil else { return }
+        crossfading = true
+        let old = front
+        front = back
+        players[front].play()
+        animate(layers[front], to: 1)
+        animate(layers[old], to: 0)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.fade) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.crossfading else { return }
+                self.crossfading = false
+                self.players[old].pause()
+                self.load(into: old)
+            }
+        }
+    }
+
+    private func animate(_ layer: CALayer, to opacity: Float) {
+        let animation = CABasicAnimation(keyPath: "opacity")
+        animation.fromValue = layer.presentation()?.opacity ?? layer.opacity
+        animation.toValue = opacity
+        animation.duration = Self.fade
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        layer.opacity = opacity
+        layer.add(animation, forKey: "fade")
     }
 }
 
 struct AerialView: NSViewRepresentable {
-    let player: AVPlayer
+    let player: AerialPlayer
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
-        let layer = AVPlayerLayer(player: player)
-        layer.videoGravity = .resizeAspectFill
-        view.layer = layer
+        let root = CALayer()
+        view.layer = root
         view.wantsLayer = true
+        for layer in player.layers {
+            layer.frame = root.bounds
+            root.addSublayer(layer)
+        }
         return view
     }
 

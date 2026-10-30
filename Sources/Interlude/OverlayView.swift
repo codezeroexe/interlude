@@ -96,7 +96,7 @@ struct OverlayView: View {
             ZStack {
                 // Wallpaper: fades in while settling from a slight zoom; fades out on exit.
                 ZStack {
-                    AerialView(player: model.aerial.player)
+                    AerialView(player: model.aerial)
                         .opacity(albumBackdrop || night.on ? 0 : 1)
                     if albumBackdrop {
                         MusicBackground(artwork: nowPlaying.artwork, palette: nowPlaying.palette, playing: nowPlaying.track?.playing == true)
