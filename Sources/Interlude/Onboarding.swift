@@ -36,14 +36,14 @@ struct OnboardingView: View {
                     }
                 }
                 // Fades into the window, whatever its material shows.
-                .mask(LinearGradient(stops: [.init(color: .black, location: 0.65), .init(color: .clear, location: 1)],
+                .mask(LinearGradient(stops: [.init(color: .black, location: 0.6), .init(color: .black.opacity(0.4), location: 0.82), .init(color: .clear, location: 1)],
                                      startPoint: .top, endPoint: .bottom))
 
             content
                 .id(flow.step)
                 .transition(.opacity)
                 .frame(maxWidth: .infinity)
-                .frame(height: 290, alignment: .top)
+                .frame(height: 290, alignment: .center)
                 .padding(.horizontal, 48)
                 .padding(.top, 4)
 
@@ -150,7 +150,9 @@ struct OnboardingView: View {
             Button(flow.step == 0 ? "Get Started" : flow.step == Self.lastStep ? "Done" : "Continue") {
                 if flow.step < Self.lastStep { flow.step += 1 } else { finish() }
             }
-            .buttonStyle(.capsuleProminent)
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
+            .controlSize(.large)
             .keyboardShortcut(.defaultAction)
         }
         .padding(.horizontal, 24)
@@ -183,9 +185,15 @@ struct OnboardingView: View {
         let on = option == flow.starter
         let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
         return Button {
+            let previous = flow.starter
             flow.starter = option
-            let columns = Grid(size: NSScreen.main?.frame.size ?? CGSize(width: 1710, height: 1112)).columns
-            UserDefaults.standard.set(option.layout(columns: columns).rawValue, forKey: LayoutProfile.standard.key)
+            // Only overwrite an empty slot or the last starter we seeded, never a custom layout.
+            let key = LayoutProfile.standard.key
+            let columns = Grid(size: StartConditions.screen?.frame.size ?? CGSize(width: 1710, height: 1112)).columns
+            let saved = UserDefaults.standard.string(forKey: key)
+            if saved == nil || saved == previous.layout(columns: columns).rawValue {
+                UserDefaults.standard.set(option.layout(columns: columns).rawValue, forKey: key)
+            }
         } label: {
             VStack(alignment: .leading, spacing: 0) {
                 // The same scene as above, drawn large and scaled down so the cards keep their proportions.

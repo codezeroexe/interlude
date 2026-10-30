@@ -301,7 +301,7 @@ enum LayoutProfile: String, CaseIterable, Identifiable {
 
     var name: String {
         switch self {
-        case .standard: "Standard"
+        case .standard: "Everyday"
         case .music: "Music"
         case .night: "Night"
         }
@@ -319,7 +319,7 @@ enum LayoutProfile: String, CaseIterable, Identifiable {
 // MARK: - Settings pane
 
 /// The whole screen in miniature: drag widgets between the grid and the shelf below it.
-/// One layout per situation (Standard, Music, Night).
+/// One layout per situation (Everyday, Music, Night).
 struct LayoutSettings: View {
     let model: OverlayModel
     @AppStorage("settingsLayoutProfile") private var profile = LayoutProfile.standard
@@ -334,7 +334,7 @@ struct LayoutSettings: View {
             }
             .padding(.top, 6)
             SettingsGroup(footer: profile == .standard
-                          ? "Shown unless a Music or Night layout applies."
+                          ? "Everyday shows unless a Music or Night layout applies."
                           : profile == .music ? "Shown while music plays." : "Shown while night mode is on.") {
                 SettingsRow(title: "Layout") {
                     Segmented(selection: $profile, choices: LayoutProfile.allCases.map { Choice($0.name, $0) })
@@ -378,7 +378,7 @@ private struct ProfileEditor: View {
     var body: some View {
         // Same shape as the screen standby runs on, so the grid has the same columns. The picture
         // grows with the window.
-        let screen = NSScreen.main?.frame.size ?? CGSize(width: 1512, height: 982)
+        let screen = StartConditions.screen?.frame.size ?? CGSize(width: 1512, height: 982)
         let columns = Grid(size: screen, rows: gridRows).columns
         let layout = Binding { stored.fitted(to: columns, rows: gridRows) } set: { stored = $0 }
         let standard = WidgetLayout.standard(columns: columns, rows: gridRows)

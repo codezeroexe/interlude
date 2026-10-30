@@ -10,6 +10,8 @@ struct NowPlayingCard: View {
 
     /// Nothing playing, or paused for over 5 minutes: the card stays, saying so.
     private var idle: Bool { !nowPlaying.visible }
+    /// Idle but a player still holds a track (paused a while), so Space and play can resume it.
+    private var resumable: Bool { idle && nowPlaying.track != nil }
 
     var body: some View {
         let track = idle ? Track.idle : nowPlaying.track!
@@ -50,7 +52,7 @@ struct NowPlayingCard: View {
                 cover.mask(LinearGradient(stops: [.init(color: .black, location: 0.35), .init(color: .clear, location: 0.92)],
                                           startPoint: .top, endPoint: .bottom))
                 VStack(spacing: 0.3 * u) {
-                    centred(track, title: big ? 2.4 : 1.7, artist: big ? 1.6 : 1.3)
+                    centred(track, title: big ? 2.4 : 1.7, artist: big ? 1.6 : 1.3, hint: resumable && big)
                     controls(track, big ? 2 : 1.5).padding(.top, (big ? 1.2 : 0.7) * u)
                 }
                 .padding((big ? 2.2 : 1.4) * u)
@@ -59,7 +61,7 @@ struct NowPlayingCard: View {
             ZStack(alignment: .bottom) {
                 cover
                 VStack(spacing: 1 * u) {
-                    centred(track, title: 2, artist: 1.6)
+                    centred(track, title: 2, artist: 1.6, hint: resumable)
                     controls(track, 2)
                 }
                 .padding(1.6 * u)
@@ -107,13 +109,13 @@ struct NowPlayingCard: View {
     private func classicText(_ track: Track) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Spacer(minLength: 0)
-            titles(track, title: 2.4, artist: 2.1, label: !idle)
+            titles(track, title: 2.4, artist: 2.1, label: !idle, hint: resumable)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .overlay(alignment: .topTrailing) { controls(track, 2.2) }
     }
 
-    private func titles(_ track: Track, title: CGFloat, artist: CGFloat, label: Bool) -> some View {
+    private func titles(_ track: Track, title: CGFloat, artist: CGFloat, label: Bool, hint: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             if label {
                 Text("NOW PLAYING")
@@ -124,13 +126,21 @@ struct NowPlayingCard: View {
             }
             Marquee(text: track.title, u: grid.u).font(.system(size: title * grid.u, weight: .semibold))
             Marquee(text: track.artist, u: grid.u).font(.system(size: artist * grid.u)).opacity(0.8)
+            if hint { spaceHint(artist * 0.6) }
         }
     }
 
-    private func centred(_ track: Track, title: CGFloat, artist: CGFloat) -> some View {
+    /// Only in the idle state: Space starts the player from the overlay.
+    private func spaceHint(_ points: CGFloat) -> some View {
+        Text("Press Space to play").font(.system(size: points * grid.u)).opacity(0.55).lineLimit(1)
+            .transition(.opacity)
+    }
+
+    private func centred(_ track: Track, title: CGFloat, artist: CGFloat, hint: Bool = false) -> some View {
         VStack(spacing: 0.1 * grid.u) {
             Text(track.title).font(.system(size: title * grid.u, weight: .semibold))
             Text(track.artist).font(.system(size: artist * grid.u)).opacity(0.75)
+            if hint { spaceHint(artist * 0.7) }
         }
         .lineLimit(1)
         .multilineTextAlignment(.center)
@@ -172,7 +182,6 @@ struct NowPlayingCard: View {
             control("forward.fill", .next)
         }
         .font(.system(size: points * grid.u))
-        .opacity(idle ? 0.4 : 1)
     }
 
     private func playPause(_ track: Track) -> some View {
@@ -180,10 +189,15 @@ struct NowPlayingCard: View {
     }
 
     private func control(_ symbol: String, _ command: NowPlaying.Command) -> some View {
-        Button { nowPlaying.send(command) } label: {
+        // Idle: previous/next do nothing; play/pause works only while a player still holds a track.
+        let dead = idle && (command != .playPause || !resumable)
+        return Button { nowPlaying.send(command) } label: {
             Image(systemName: symbol).contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.plain)
+        .disabled(dead)
+        .opacity(dead ? 0.3 : idle ? 0.85 : 1)
+        .animation(.smooth(duration: 0.3), value: idle)
     }
 }
 
@@ -198,35 +212,21 @@ struct Marquee: View {
     let text: String
     let u: CGFloat
     @StateObject private var size = MarqueeSize()
+    @Environment(\.font) private var font
 
     var body: some View {
-        let gap = 4 * u
-        let fade = 2 * u
         let overflow = size.text > size.box + 0.5
-        TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !overflow)) { context in
-            let distance = size.text + gap
-            let offset = overflow
-                ? Self.offset(at: context.date.timeIntervalSince(size.start), distance: distance, speed: 2.5 * u)
-                : 0
-            // Left edge fades only while text is moving past it, so the resting title starts crisp.
-            let leftFade = min(1, offset / fade, (distance - offset) / fade)
-            HStack(spacing: gap) {
-                label
-                if overflow { label }
-            }
-            .offset(x: -offset)
+        // Overflow: Core Animation scrolls two pre-rendered copies in the render server, so SwiftUI never re-lays-out per frame.
+        // The label stays (invisible) to measure text and box; the layer view draws on top of it.
+        label
             .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading) // minWidth 0: long text must not widen the card
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { size.box = $0 }
-            .mask {
-                LinearGradient(stops: overflow ? [
-                    .init(color: .black.opacity(1 - leftFade), location: 0),
-                    .init(color: .black, location: fade / max(size.box, 1)),
-                    .init(color: .black, location: 1 - fade / max(size.box, 1)),
-                    .init(color: .clear, location: 1),
-                ] : [.init(color: .black, location: 0), .init(color: .black, location: 1)],
-                startPoint: .leading, endPoint: .trailing)
+            .opacity(overflow ? 0 : 1)
+            .overlay {
+                if overflow {
+                    MarqueeLayerView(text: text, font: font, color: .white, u: u, textWidth: size.text, start: size.start)
+                }
             }
-        }
     }
 
     private var label: some View {
@@ -251,4 +251,94 @@ final class MarqueeSize: ObservableObject {
     @Published var text: CGFloat = 0
     @Published var box: CGFloat = 0
     var start = Date.now
+}
+
+/// The overflowing marquee: the label is rendered to an image once, and two copies scroll via CAKeyframeAnimation.
+/// Same timing as `Marquee.offset`, same edge fades (left fade animated on the mask's first stop).
+private struct MarqueeLayerView: NSViewRepresentable {
+    let text: String
+    let font: Font?
+    let color: Color
+    let u: CGFloat
+    let textWidth: CGFloat
+    let start: Date
+
+    func makeNSView(context: Context) -> MarqueeNSView { MarqueeNSView() }
+    func updateNSView(_ view: MarqueeNSView, context: Context) { view.config = self }
+    static func dismantleNSView(_ view: MarqueeNSView, coordinator: ()) { view.stop() }
+}
+
+private final class MarqueeNSView: NSView {
+    var config: MarqueeLayerView? { didSet { refresh() } }
+    private let content = CALayer(), copyA = CALayer(), copyB = CALayer(), fade = CAGradientLayer()
+    private var rendered: (text: String, font: Font?, color: Color, scale: CGFloat)?
+    private var size = CGSize.zero
+    private var animated: (start: Date, u: CGFloat, width: CGFloat, box: CGSize)?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.masksToBounds = true
+        layer?.mask = fade
+        fade.startPoint = CGPoint(x: 0, y: 0.5)
+        fade.endPoint = CGPoint(x: 1, y: 0.5)
+        layer?.addSublayer(content)
+        content.addSublayer(copyA)
+        content.addSublayer(copyB)
+    }
+    required init?(coder: NSCoder) { nil }
+
+    func stop() { content.removeAllAnimations(); fade.removeAllAnimations(); animated = nil }
+    override func layout() { super.layout(); refresh() }
+    override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); refresh() }
+    override func viewDidChangeBackingProperties() { super.viewDidChangeBackingProperties(); refresh() }
+
+    private func refresh() {
+        guard let c = config, bounds.width > 0, bounds.height > 0, c.textWidth > 0 else { return }
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+
+        if rendered?.text != c.text || rendered?.font != c.font || rendered?.color != c.color || rendered?.scale != scale {
+            let renderer = ImageRenderer(content: Text(c.text).font(c.font).foregroundStyle(c.color)
+                .lineLimit(1).fixedSize().environment(\.colorScheme, .dark))
+            renderer.scale = scale
+            guard let image = renderer.cgImage else { return }
+            rendered = (c.text, c.font, c.color, scale)
+            size = CGSize(width: CGFloat(image.width) / scale, height: CGFloat(image.height) / scale)
+            for l in [copyA, copyB] { l.contents = image; l.contentsScale = scale; l.contentsGravity = .topLeft }
+            animated = nil
+        }
+
+        let gap = 4 * c.u, fadeW = 2 * c.u, speed = 2.5 * c.u, hold = 2.5
+        let distance = c.textWidth + gap
+        content.frame = bounds
+        copyA.frame = CGRect(x: 0, y: bounds.height - size.height, width: size.width, height: size.height)
+        copyB.frame = copyA.frame.offsetBy(dx: c.textWidth + gap, dy: 0)
+        fade.frame = bounds
+        let edge = fadeW / bounds.width
+        fade.locations = [0, edge, 1 - edge, 1].map { NSNumber(value: $0) }
+
+        if let a = animated, a.start == c.start, a.u == c.u, a.width == c.textWidth, a.box == bounds.size { return }
+        animated = (c.start, c.u, c.textWidth, bounds.size)
+        let move = distance / speed, cycle = hold + move, ramp = fadeW / speed
+        let begin = CACurrentMediaTime() - Date.now.timeIntervalSince(c.start)
+
+        let slide = CAKeyframeAnimation(keyPath: "transform.translation.x")
+        slide.values = [0, 0, -distance]
+        slide.keyTimes = [0, hold / cycle, 1].map { NSNumber(value: $0) }
+        let dim = CAKeyframeAnimation(keyPath: "colors")
+        let on = [CGColor.black, .black, .black, .clear], off = [CGColor(gray: 0, alpha: 0), .black, .black, .clear]
+        dim.values = [on, on, off, off, on]
+        dim.keyTimes = [0, hold, hold + ramp, cycle - ramp, cycle].map { NSNumber(value: $0 / cycle) }
+        for (anim, layer) in [(slide, content), (dim, fade)] as [(CAKeyframeAnimation, CALayer)] {
+            anim.calculationMode = .linear
+            anim.duration = cycle
+            anim.repeatCount = .infinity
+            anim.beginTime = begin
+            layer.add(anim, forKey: "marquee")
+        }
+        fade.colors = on
+    }
 }

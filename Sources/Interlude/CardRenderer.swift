@@ -157,7 +157,7 @@ enum CardRenderer {
 
     static func render(model: OverlayModel, to folder: URL) {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let grid = Grid(size: NSScreen.main?.frame.size ?? CGSize(width: 1710, height: 1112))
+        let grid = Grid(size: StartConditions.screen?.frame.size ?? CGSize(width: 1710, height: 1112))
         let entrance = Entrance()
         entrance.shown = true
         if model.nowPlaying.track == nil {

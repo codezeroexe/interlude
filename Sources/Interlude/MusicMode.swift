@@ -92,7 +92,7 @@ struct MusicBackground: View {
             let side = hypot(geo.size.width, geo.size.height) * 1.1
             // Drawn small, blurred, then scaled up: smooth, no banding, cheap to animate at full frame rate.
             let small: CGFloat = 128
-            TimelineView(.animation(paused: !playing || reduceMotion)) { context in
+            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !playing || reduceMotion)) { context in
                 let t = reduceMotion ? 0 : clock.time(at: context.date)
                 ZStack {
                     palette.base.color
@@ -105,8 +105,6 @@ struct MusicBackground: View {
                 .scaleEffect(side / small)
                 .frame(width: geo.size.width, height: geo.size.height)
             }
-            .background(palette.base.color)
-            .overlay(Color.black.opacity(0.3)) // Apple's backdrop sits well below the cover's brightness
             .overlay(shade)
             .clipped()
         }
@@ -131,12 +129,14 @@ struct MusicBackground: View {
     }
 
     /// Darker on the left; bright covers get a stronger shade so white text stays readable.
+    /// Includes a flat 0.3 black (Apple's backdrop sits well below the cover's brightness): two black
+    /// layers a and b composite to 1-(1-a)(1-b), so each stop is 0.3 + 0.7 * its own alpha.
     private var shade: some View {
         let k = palette.luminance > 0.5 ? 1.7 : 1
         return LinearGradient(stops: [
-            .init(color: .black.opacity(min(0.6, 0.3 * k)), location: 0),
-            .init(color: .black.opacity(min(0.4, 0.1 * k)), location: 0.6),
-            .init(color: .black.opacity(min(0.45, 0.15 * k)), location: 1),
+            .init(color: .black.opacity(0.3 + 0.7 * min(0.6, 0.3 * k)), location: 0),
+            .init(color: .black.opacity(0.3 + 0.7 * min(0.4, 0.1 * k)), location: 0.6),
+            .init(color: .black.opacity(0.3 + 0.7 * min(0.45, 0.15 * k)), location: 1),
         ], startPoint: .leading, endPoint: .trailing)
     }
 }

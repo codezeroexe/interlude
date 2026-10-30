@@ -44,5 +44,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 PLIST
 
 # A stable local identity keeps macOS permissions across rebuilds; ad-hoc signing is the fallback.
-codesign --force --sign "Ultron Local Signing" "$APP" 2>/dev/null || codesign --force --sign - "$APP"
+if ! codesign --force --sign "Ultron Local Signing" "$APP" 2>/dev/null; then
+  echo "WARNING: 'Ultron Local Signing' identity not found; signed ad-hoc. macOS permissions (location, etc.) will reset for this build." >&2
+  codesign --force --sign - "$APP"
+fi
 echo "Built $APP"

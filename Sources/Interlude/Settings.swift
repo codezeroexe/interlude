@@ -331,10 +331,16 @@ private struct AppearanceSettings: View {
         SettingsPage {
             // The real cards over the wallpaper, so font and glass are easy to judge.
             // With "Match Music" the music card joins the preview, so the clock's colour has its source.
-            StandbyScene(model: model, cards: clockColor == .music
-                         ? [[(.nowPlaying, .medium, 0)], [(.weather, .small, 0), (.calendar, .small, 1)]]
-                         : [[(.weather, .medium, 0)], [(.calendar, .medium, 0)]])
-                .environment(\.previewMusic, true)
+            let look = "\(clockFont)\(clockColor)\(style)\(liquidTone)"
+            ZStack {
+                StandbyScene(model: model, cards: clockColor == .music
+                             ? [[(.nowPlaying, .medium, 0)], [(.weather, .small, 0), (.calendar, .small, 1)]]
+                             : [[(.weather, .medium, 0)], [(.calendar, .medium, 0)]])
+                    .environment(\.previewMusic, true)
+                    .id(look)
+                    .transition(.opacity)
+            }
+                .animation(.smooth(duration: 0.35), value: look)
                 .frame(height: 196)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .padding(.top, 6)
@@ -407,40 +413,100 @@ private struct AppearanceSettings: View {
     }
 }
 
+private final class GroupFolds: ObservableObject {
+    @Published var choice: [String: Bool] = [:]
+}
+
 private struct WallpaperSettings: View {
     @AppStorage(AerialCatalog.selectionKey) private var wallpaper = AerialCatalog.defaultSelection
+    /// The user's open/closed choice per category id; groups without a choice are open when they hold a pick.
+    /// (A model object, not @State: the CommandLineTools SDK lacks the SwiftUI macro plugin.)
+    @StateObject private var folds = GroupFolds()
+    private static let lastPickHint = "At least one aerial stays on"
 
     var body: some View {
+        let selected = AerialCatalog.selectedIDs(from: wallpaper)
         SettingsPage {
             SettingsGroup(footer: "The aerials from System Settings › Wallpaper. Downloaded ones play from disk; the rest stream from Apple.") {
-                SettingsRow(title: "Play", subtitle: "A new aerial each time Interlude starts") {
-                    PopupMenu(selection: $wallpaper, choices:
-                        [.heading("Shuffle"), Choice("All Aerials", "all")]
-                        + AerialCatalog.categories.map { Choice("All \($0.name)", "category:\($0.id)") }
-                        + AerialCatalog.categories.flatMap { category in
-                            [Choice<String>.heading(category.name)] + category.aerials.map { Choice($0.name, "aerial:\($0.id)") }
-                        })
-                }
+                SettingsRow(title: "Playing", subtitle: selected.count == 1
+                            ? "1 aerial, on repeat"
+                            : "\(selected.count) aerials, shuffled · no repeats until all have played") { EmptyView() }
             }
             ForEach(AerialCatalog.categories) { category in
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(category.name)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 10)
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 12) {
-                        ForEach(category.aerials) { aerial in thumb(aerial, in: category) }
+                    let open = isOpen(category, selected)
+                    header(category, selected, open: open)
+                    if open {
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 12) {
+                            ForEach(category.aerials) { aerial in thumb(aerial, selected) }
+                        }
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                     }
                 }
+                .clipped()
             }
         }
     }
 
-    /// An aerial's still with its name. Click to play only that one.
-    private func thumb(_ aerial: AerialCatalog.Aerial, in category: AerialCatalog.Category) -> some View {
-        let on = wallpaper == "aerial:\(aerial.id)" || wallpaper == "category:\(category.id)" || wallpaper == "all"
+    /// Saves a selection, except an empty one: something must always play.
+    private func save(_ ids: Set<String>) {
+        guard !ids.isEmpty else { return }
+        wallpaper = AerialCatalog.selection(of: ids)
+    }
+
+    private func isOpen(_ category: AerialCatalog.Category, _ selected: Set<String>) -> Bool {
+        folds.choice[category.id] ?? category.aerials.contains { selected.contains($0.id) }
+    }
+
+    /// Chevron and name toggle the group; the tri-state box beside them checks the whole group,
+    /// or clears it when all are checked.
+    private func header(_ category: AerialCatalog.Category, _ selected: Set<String>, open: Bool) -> some View {
+        let ids = Set(category.aerials.map(\.id))
+        let count = ids.intersection(selected).count
+        let all = count == ids.count
+        return HStack(spacing: 8) {
+            Button { save(all ? selected.subtracting(ids) : selected.union(ids)) } label: {
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(count > 0 ? Color.accentColor : Color.clear)
+                    .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(Color.primary.opacity(count > 0 ? 0 : 0.3), lineWidth: 1))
+                    .overlay {
+                        if count > 0 {
+                            Image(systemName: all ? "checkmark" : "minus").font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
+                        }
+                    }
+                    .frame(width: 16, height: 16)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(all && selected.count == count ? Self.lastPickHint : "")
+            .accessibilityLabel("\(category.name), \(count) of \(ids.count) selected")
+            Button { withAnimation(.smooth(duration: 0.25)) { folds.choice[category.id] = !open } } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .bold))
+                        .rotationEffect(.degrees(open ? 90 : 0))
+                        .animation(.smooth(duration: 0.25), value: open)
+                    Text(category.name)
+                    Spacer()
+                    Text("\(count) of \(ids.count)").font(.system(size: 12))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(category.name), \(open ? "collapse" : "expand")")
+        }
+        .font(.system(size: 12, weight: .semibold))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 10)
+        .animation(.smooth(duration: 0.2), value: count)
+    }
+
+    /// An aerial's still with its name. Click to add it to or remove it from the shuffle.
+    private func thumb(_ aerial: AerialCatalog.Aerial, _ selected: Set<String>) -> some View {
+        let isSelected = selected.contains(aerial.id)
         let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
-        return Button { wallpaper = "aerial:\(aerial.id)" } label: {
+        let onlyOne = isSelected && selected.count == 1
+        return Button { save(isSelected ? selected.subtracting([aerial.id]) : selected.union([aerial.id])) } label: {
             Color.clear
                 .frame(height: 118)
                 .overlay {
@@ -461,41 +527,63 @@ private struct WallpaperSettings: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .top, endPoint: .bottom))
                 }
+                .overlay(alignment: .topTrailing) {
+                    Circle()
+                        .fill(isSelected ? Color.accentColor.opacity(onlyOne ? 0.5 : 1) : Color.black.opacity(0.25))
+                        .overlay(Circle().strokeBorder(.white, lineWidth: 1.5))
+                        .overlay {
+                            if isSelected { Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white) }
+                        }
+                        .frame(width: 18, height: 18)
+                        .padding(8)
+                }
                 .clipShape(shape)
-                .overlay(shape.strokeBorder(Color.graphite, lineWidth: 2.5).opacity(wallpaper == "aerial:\(aerial.id)" ? 1 : 0))
-                .opacity(on ? 1 : 0.55)
+                .overlay(shape.strokeBorder(Color.accentColor, lineWidth: 2).opacity(isSelected ? 1 : 0))
+                .opacity(isSelected ? 1 : 0.45)
                 .contentShape(shape)
+                .animation(.smooth(duration: 0.2), value: isSelected)
         }
         .buttonStyle(.plain)
+        .help(onlyOne ? Self.lastPickHint : "")
         .accessibilityLabel(aerial.name)
-        .accessibilityAddTraits(wallpaper == "aerial:\(aerial.id)" ? .isSelected : [])
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
 private struct MusicSettings: View {
     let model: OverlayModel
+    @ObservedObject private var nowPlaying: NowPlaying
     @AppStorage(MusicLook.key) private var musicLook = MusicLook.album
     @AppStorage("monochromeArtwork") private var monochromeArtwork = true
-    private let players = PlayerBridge()
+    /// Players Interlude may control; read again when the app comes forward, as after System Settings.
+    @StateObject private var allowed = AllowedPlayers()
+
+    init(model: OverlayModel) {
+        self.model = model
+        nowPlaying = model.nowPlaying
+    }
 
     var body: some View {
         let grid = Grid.preview(u: 5.2)
         SettingsPage {
             // The real Now Playing card with the song playing now (a sample one when nothing plays).
             CardPreview(model: model, widget: .nowPlaying, size: .medium, style: 0, grid: grid)
+                .id(monochromeArtwork)
+                .transition(.opacity)
                 .frame(maxWidth: .infinity)
                 .frostBackdrop(musicLook != .album)
                 .frame(height: 150)
                 // What sits behind the card while music plays: the album's colours, or the wallpaper.
                 .background {
                     if musicLook == .album {
-                        let source = model.nowPlaying.track == nil ? NowPlaying.sample : model.nowPlaying
+                        let source = nowPlaying.track == nil ? NowPlaying.sample : nowPlaying
                         MusicBackground(artwork: source.artwork, palette: source.palette, playing: true)
                     } else {
                         PreviewBackdrop()
                     }
                 }
                 .animation(.smooth(duration: 0.4), value: musicLook)
+                .animation(.smooth(duration: 0.35), value: monochromeArtwork)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .padding(.top, 6)
             SettingsGroup(title: "While Music Plays") {
@@ -509,7 +597,7 @@ private struct MusicSettings: View {
             SettingsGroup(title: "Players", footer: "Interlude asks each player for access while it's open.") {
                 ForEach(Track.Player.allCases, id: \.self) { player in
                     SettingsRow(title: player == .music ? "Music" : "Spotify") {
-                        if players.permitted(player, ask: false) {
+                        if allowed.set.contains(player) {
                             AllowedLabel()
                         } else {
                             Button("Allow…") { model.nowPlaying.requestPermissions() }
@@ -519,7 +607,16 @@ private struct MusicSettings: View {
                 }
             }
         }
+        .onAppear { allowed.reload() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in allowed.reload() }
     }
+}
+
+private final class AllowedPlayers: ObservableObject {
+    @Published private(set) var set: Set<Track.Player> = []
+    private let bridge = PlayerBridge()
+
+    func reload() { set = Set(Track.Player.allCases.filter { bridge.permitted($0, ask: false) }) }
 }
 
 /// Settings for individual widgets: World Clock cities, the focus timer's length and Reminders.
@@ -554,7 +651,7 @@ private struct WidgetSettings: View {
                             .textFieldStyle(.plain)
                             .labelsHidden()
                         PopupMenu(selection: Binding { cities[i].zone } set: { edit(i) { $0.zone = $1 }($0) },
-                                  choices: Self.zones.map { Choice($0.replacingOccurrences(of: "_", with: " "), $0) })
+                                  choices: zoneChoices(including: cities[i].zone))
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 7)
@@ -578,6 +675,13 @@ private struct WidgetSettings: View {
                 }
             }
         }
+    }
+
+    /// All zones, plus the row's own when this macOS lacks it (Asia/Kolkata), so the picker is never blank.
+    private func zoneChoices(including zone: String) -> [Choice<String>] {
+        var zones = Self.zones
+        if !zones.contains(zone) { zones.insert(zone, at: zones.firstIndex { $0 > zone } ?? zones.endIndex) }
+        return zones.map { Choice($0.replacingOccurrences(of: "_", with: " "), $0) }
     }
 
     /// Returns a setter that changes one field of city `i` and saves the list.

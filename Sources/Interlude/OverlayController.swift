@@ -37,9 +37,21 @@ final class OverlayController {
     private var window: OverlayWindow?
     private var keyMonitor: Any?
     private var sleepAssertion: IOPMAssertionID = 0
+    /// The 650 ms exit animation's cleanup, and the window it will close.
+    private var pendingHide: (task: Task<Void, Never>, window: OverlayWindow)?
+
+    var isShowing: Bool { window != nil }
 
     func show() {
         guard window == nil, let screen = StartConditions.screen else { return }
+        // Shown again mid-exit: drop the cleanup. The old window closes now, and the monitors it
+        // would have stopped keep running, so they are not started a second time below.
+        let resuming = pendingHide != nil
+        if let pending = pendingHide {
+            pending.task.cancel()
+            pending.window.orderOut(nil)
+            pendingHide = nil
+        }
 
         let w = OverlayWindow(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         w.level = .screenSaver
@@ -58,8 +70,12 @@ final class OverlayController {
         model.calendar.refresh()
         model.weather.refresh()
         model.reminders.refresh()
+        if !resuming {
+            model.battery.start()
+            model.night.start()
+            model.nowPlaying.start()
+        }
         model.night.check()
-        model.nowPlaying.start()
         model.aerial.play()
 
         // A non-activating panel takes key focus without waiting for macOS to let the app come forward,
@@ -101,13 +117,18 @@ final class OverlayController {
         sleepAssertion = 0
         // Exit animation: cards drop away, then the wallpaper fades out to the desktop.
         model.entrance.shown = false
-        Task { @MainActor in
+        let task = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(650))
+            guard !Task.isCancelled else { return }
+            pendingHide = nil
             w.orderOut(nil)
-            model.aerial.pause()
+            model.aerial.unload()
+            model.battery.stop()
+            model.night.stop()
             model.nowPlaying.stop()
             model.nowPlaying.requestPermissions()
         }
+        pendingHide = (task, w)
     }
 }
 

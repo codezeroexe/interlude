@@ -223,7 +223,7 @@ final class ReminderStore: ObservableObject {
     func complete(_ item: Item) {
         guard let reminder = store.calendarItem(withIdentifier: item.id) as? EKReminder else { return }
         reminder.isCompleted = true
-        try? store.save(reminder, commit: true)
+        do { try store.save(reminder, commit: true) } catch { return } // keep the item if the save failed
         Motion.animate { items.removeAll { $0.id == item.id } }
     }
 }
@@ -411,8 +411,13 @@ struct WorldClockCard: View {
 
     var body: some View {
         let cities = Array(WorldCity.load(raw).prefix(size == .small ? (style == 1 ? 3 : 1) : 4))
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            content(cities, context.date)
+        // Digital list shows hh:mm only; the analog faces have a second hand.
+        Group {
+            if style == 1 {
+                TimelineView(.everyMinute) { content(cities, $0.date) }
+            } else {
+                TimelineView(.periodic(from: .now, by: 1)) { content(cities, $0.date) }
+            }
         }
         .padding(1.6 * grid.u)
         .frame(width: grid.w(size), height: grid.h(size))
@@ -434,7 +439,7 @@ struct WorldClockCard: View {
                             Text(Self.time(date, zone)).font(.system(size: (size == .small ? 2 : 2.6) * u, weight: .medium)).monospacedDigit()
                         }
                         if size != .small {
-                            Text(Self.offset(zone, at: date)).font(.system(size: 1.1 * u)).opacity(0.6).lineLimit(1)
+                            Text(Self.offsetLines(zone, at: date)).font(.system(size: 1.1 * u)).opacity(0.6).lineLimit(2)
                         }
                     }
                 }
@@ -481,7 +486,8 @@ struct WorldClockCard: View {
                         AnalogFace(date: date, zone: zone, size: 8.4 * u)
                         VStack(spacing: 0.1 * u) {
                             Text(city.name).font(.system(size: 1.5 * u, weight: .semibold)).lineLimit(1)
-                            Text(Self.offset(zone, at: date)).font(.system(size: 1.2 * u)).opacity(0.6).lineLimit(1)
+                            Text(Self.offsetLines(zone, at: date)).font(.system(size: 1.2 * u)).opacity(0.6).lineLimit(2)
+                                .multilineTextAlignment(.center)
                         }
                     }
                     .frame(maxWidth: .infinity)
@@ -498,18 +504,34 @@ struct WorldClockCard: View {
         return date.formatted(style)
     }
 
+    /// Today / Tomorrow / Yesterday, comparing (year, month, day) in order so month and year ends work.
+    static func dayLabel(here a: (Int, Int, Int), there b: (Int, Int, Int)) -> String {
+        a == b ? "Today" : (b > a ? "Tomorrow" : "Yesterday")
+    }
+
     /// "Today, +0HRS", "Yesterday, −5:30", as the Clock widget writes it.
     static func offset(_ zone: TimeZone, at date: Date) -> String {
+        let p = offsetParts(zone, at: date)
+        return "\(p.day), \(p.amount)"
+    }
+
+    /// The same text split in two ("Yesterday" / "−5:30") for narrow cards, where one line truncates.
+    static func offsetLines(_ zone: TimeZone, at date: Date) -> String {
+        let p = offsetParts(zone, at: date)
+        return "\(p.day)\n\(p.amount)"
+    }
+
+    static func offsetParts(_ zone: TimeZone, at date: Date) -> (day: String, amount: String) {
         let seconds = zone.secondsFromGMT(for: date) - TimeZone.current.secondsFromGMT(for: date)
         var there = Calendar(identifier: .gregorian)
         there.timeZone = zone
         let here = Calendar.current
         let a = here.dateComponents([.year, .month, .day], from: date)
         let b = there.dateComponents([.year, .month, .day], from: date)
-        let day = a == b ? "Today" : (b.day! > a.day! || b.month! > a.month! || b.year! > a.year! ? "Tomorrow" : "Yesterday")
+        let day = dayLabel(here: (a.year!, a.month!, a.day!), there: (b.year!, b.month!, b.day!))
         let h = abs(seconds) / 3600, m = abs(seconds) % 3600 / 60
         let sign = seconds < 0 ? "−" : "+"
-        return m == 0 ? "\(day), \(sign)\(h)HRS" : "\(day), \(sign)\(h):\(String(format: "%02d", m))"
+        return (day, m == 0 ? "\(sign)\(h)HRS" : "\(sign)\(h):\(String(format: "%02d", m))")
     }
 }
 
@@ -621,8 +643,13 @@ struct TimerCard: View {
 
     var body: some View {
         let u = grid.u
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            content(timer.left(at: context.date), context.date)
+        // No per-second ticks while paused or finished.
+        Group {
+            if timer.running {
+                TimelineView(.periodic(from: .now, by: 1)) { content(timer.left(at: $0.date), $0.date) }
+            } else {
+                TimelineView(.explicit([.now])) { content(timer.left(at: $0.date), $0.date) }
+            }
         }
         .padding(1.8 * u)
         .frame(width: grid.w(size), height: grid.h(size))
@@ -854,14 +881,25 @@ enum NightTint: String, CaseIterable {
 final class NightMonitor: ObservableObject {
     @Published private(set) var on = NightMode.isOn()
     private var timer: Timer?
+    private var observer: NSObjectProtocol?
 
-    init() {
+    /// Watches the schedule only while the overlay shows.
+    func start() {
+        guard timer == nil else { return }
         timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.check() }
         }
-        NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+        timer?.tolerance = 5
+        observer = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.check() }
         }
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+        observer = nil
     }
 
     func check() {

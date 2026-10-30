@@ -22,12 +22,26 @@ final class BatteryMonitor: ObservableObject {
         var id: String { name }
     }
 
-    init() {
-        refresh()
+    /// Polls only while the overlay shows, so demo instances and a hidden overlay cost nothing.
+    func start() {
+        guard timer == nil else { return }
+        // show() refreshes right before this.
         // ponytail: 30 s polling; switch to IOPSNotificationCreateRunLoopSource if it feels laggy.
         timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
         }
+        timer?.tolerance = 5
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    /// Cheap plugged-in check for the idle monitor: no device scan, no system_profiler.
+    nonisolated static var isPluggedIn: Bool {
+        let info = IOPSCopyPowerSourcesInfo().takeRetainedValue()
+        return IOPSGetProvidingPowerSourceType(info)?.takeUnretainedValue() as String? == kIOPSACPowerValue
     }
 
     func refresh() {
@@ -38,14 +52,18 @@ final class BatteryMonitor: ObservableObject {
         else { return }
         let current = desc[kIOPSCurrentCapacityKey] as? Int ?? 0
         let max = desc[kIOPSMaxCapacityKey] as? Int ?? 100
-        level = max > 0 ? Double(current) / Double(max) : 0
-        pluggedIn = (desc[kIOPSPowerSourceStateKey] as? String) == kIOPSACPowerValue
+        // Publish only real changes, so the cards don't re-evaluate every 30 s for nothing.
+        let newLevel = max > 0 ? Double(current) / Double(max) : 0
+        if level != newLevel { level = newLevel }
+        let newPlugged = (desc[kIOPSPowerSourceStateKey] as? String) == kIOPSACPowerValue
+        if pluggedIn != newPlugged { pluggedIn = newPlugged }
         let minutes = desc[pluggedIn ? kIOPSTimeToFullChargeKey : kIOPSTimeToEmptyKey] as? Int ?? -1
-        minutesLeft = minutes > 0 ? minutes : nil
+        let newMinutes = minutes > 0 ? minutes : nil
+        if minutesLeft != newMinutes { minutesLeft = newMinutes }
         // ponytail: system_profiler is slow (about a second), so devices are checked every 2 min, off the main thread.
         if Date().timeIntervalSince(lastDeviceCheck) > 120 {
             lastDeviceCheck = Date()
-            Task.detached {
+            Task.detached(priority: .utility) {
                 let found = Self.bluetoothDevices()
                 await MainActor.run { if found != self.devices { Motion.animate { self.devices = found } } }
             }
@@ -61,6 +79,7 @@ final class BatteryMonitor: ObservableObject {
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
+        process.qualityOfService = .utility
         guard (try? process.run()) != nil else { return [] }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
@@ -108,10 +127,13 @@ final class BatteryMonitor: ObservableObject {
 /// Timed events for the next week, from Calendar.
 @MainActor
 final class CalendarStore: ObservableObject {
-    struct Event: Equatable, Hashable {
+    struct Event: Equatable, Hashable, Identifiable {
         let title: String
         let start: Date
         var end: Date? = nil
+        /// EventKit's identifier. The same meeting on two calendars is two events, so lists key on it.
+        var uid: String? = nil
+        var id: String { "\(uid ?? title)|\(start.timeIntervalSince1970)" }
     }
 
     /// The next timed event today.
@@ -138,7 +160,7 @@ final class CalendarStore: ObservableObject {
         let events = store.events(matching: predicate)
             .filter { !$0.isAllDay && $0.startDate >= now }
             .sorted { $0.startDate < $1.startDate }
-            .map { Event(title: $0.title ?? "Event", start: $0.startDate, end: $0.endDate) }
+            .map { Event(title: $0.title ?? "Event", start: $0.startDate, end: $0.endDate, uid: $0.eventIdentifier) }
         let first = events.first { Calendar.current.isDateInToday($0.start) }
         if events != upcoming || first != next { Motion.animate { upcoming = events; next = first } }
     }

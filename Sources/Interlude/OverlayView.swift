@@ -57,8 +57,8 @@ struct Grid {
     func x(_ col: Int) -> CGFloat { margin + CGFloat(col) * (cw + g) }
 
     /// A small grid with unit `u`, the same shape as this Mac's screen, for card previews in Settings.
-    static func preview(u: CGFloat) -> Grid {
-        let screen = NSScreen.main?.frame.size ?? CGSize(width: 1710, height: 1112)
+    @MainActor static func preview(u: CGFloat) -> Grid {
+        let screen = StartConditions.screen?.frame.size ?? CGSize(width: 1710, height: 1112)
         let aspect = screen.width / screen.height
         let height = 62.8 * u / (1 - 0.07 * aspect)
         return Grid(size: CGSize(width: height * aspect, height: height))
@@ -558,9 +558,9 @@ struct CalendarCard: View {
         TimelineView(.everyMinute) { context in
             content(context.date)
                 .padding(1.8 * grid.u)
-                .frame(width: grid.w(size), height: grid.h(size), alignment: .topLeading)
-                .glass(grid)
         }
+        .frame(width: grid.w(size), height: grid.h(size), alignment: .topLeading)
+        .glass(grid)
     }
 
     @ViewBuilder private func content(_ date: Date) -> some View {
@@ -649,7 +649,7 @@ struct CalendarCard: View {
             if list.isEmpty {
                 Text("No more events today").font(.system(size: 1.5 * grid.u)).opacity(0.6)
             }
-            ForEach(Array(list.enumerated()), id: \.element) { i, e in event(e, first: i == 0, range: range) }
+            ForEach(Array(list.enumerated()), id: \.element.id) { i, e in event(e, first: i == 0, range: range) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
@@ -672,7 +672,7 @@ struct CalendarCard: View {
                             .frame(width: 7 * u, alignment: .leading)
                         VStack(alignment: .leading, spacing: 0.3 * u) {
                             if list.isEmpty { Text("No events").opacity(0.5) }
-                            ForEach(Array(list), id: \.self) { e in
+                            ForEach(Array(list)) { e in
                                 HStack(spacing: 0.6 * u) {
                                     Text(e.title).lineLimit(1)
                                     Text(e.start.formatted(date: .omitted, time: .shortened)).opacity(0.6)

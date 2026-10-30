@@ -12,16 +12,14 @@ struct Track {
     let title: String
     let artist: String
     let duration: Double
-    let position: Double
     let playing: Bool
     let artworkURL: URL?
-    var sampledAt = Date.now
 
     var id: String { "\(player.rawValue)|\(title)|\(artist)" }
 
     /// What the Now Playing card shows when nothing plays.
     static let idle = Track(player: .music, title: "Not Playing", artist: "Apple Music", duration: 0,
-                            position: 0, playing: false, artworkURL: nil)
+                            playing: false, artworkURL: nil)
 }
 
 @MainActor
@@ -52,13 +50,15 @@ final class NowPlaying: ObservableObject {
             return true
         }
         sample.preview(Track(player: .music, title: "Lulu", artist: "The Neighbourhood", duration: 200,
-                             position: 20, playing: true, artworkURL: nil), artwork: art)
+                             playing: true, artworkURL: nil), artwork: art)
         return sample
     }()
 
     private var pausedSince: Date?
     private var emptyReads = 0
     private var timer: Timer?
+    private var reading = false
+    private var expiry: Task<Void, Never>?
     private let bridge = PlayerBridge()
 
     /// The card shows while playing and for 5 minutes after pausing.
@@ -75,6 +75,7 @@ final class NowPlaying: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.poll() }
         }
+        timer?.tolerance = 0.2
     }
 
     func stop() {
@@ -107,10 +108,12 @@ final class NowPlaying: ObservableObject {
     }
 
     private func poll() {
+        guard !reading else { return } // a slow player must not stack up reads
+        reading = true
         let running = Self.runningPlayers()
         bridge.queue.async { [bridge] in
             let track = bridge.read(running)
-            DispatchQueue.main.async { self.apply(track) }
+            DispatchQueue.main.async { self.reading = false; self.apply(track) }
         }
     }
 
@@ -127,41 +130,71 @@ final class NowPlaying: ObservableObject {
         if changedTrack { loadArtwork(for: new) }
         if new?.playing != false {
             pausedSince = nil
+            expiry?.cancel()
+            expiry = nil
         } else if pausedSince == nil {
             // ponytail: counts from when the overlay first saw it paused, not from the real pause.
             pausedSince = .now
+            // Nothing else republishes once the track stops changing, so wake the card for the 5 minute mark.
+            expiry = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(5 * 60))
+                guard !Task.isCancelled else { return }
+                Motion.animate { objectWillChange.send() }
+            }
         }
         let nowVisible = new.map { $0.playing || Date().timeIntervalSince(pausedSince ?? .now) < 5 * 60 } ?? false
         // Animate only when the layout changes (card appears/leaves, new song), not on every position tick.
         if changedTrack || nowVisible != wasVisible {
             Motion.animate { track = new }
-        } else {
+        } else if new?.playing != track?.playing {
             track = new
         }
+        // Otherwise only the position moved, which no view reads: skip the publish.
     }
 
     /// Keeps showing the previous cover until the new one has loaded, then crossfades, so skipping
     /// never flashes the empty placeholder.
     private func loadArtwork(for track: Track?) {
         guard let track else { artwork = nil; return }
-        bridge.queue.async { [bridge] in
-            var data: Data?
-            if let url = track.artworkURL {
-                data = try? Data(contentsOf: url)
-            } else if track.player == .music {
-                data = bridge.run("tell application id \"com.apple.Music\" to get raw data of artwork 1 of current track")?.data
-            }
-            let image = data.flatMap(NSImage.init(data:))
+        let deliver: @Sendable (Data?) -> Void = { data in
+            var image = data.flatMap { NSImage(data: $0) }
+            if let full = image { image = Self.downscaled(full) }
             let palette = image.flatMap(Palette.init(image:)) ?? .fallback
             DispatchQueue.main.async {
                 if self.track?.id == track.id { Motion.animate(Motion.fade) { self.artwork = image; self.palette = palette } }
             }
         }
+        if let url = track.artworkURL {
+            URLSession.shared.dataTask(with: url) { data, _, _ in deliver(data) }.resume()
+        } else if track.player == .music {
+            nonisolated(unsafe) let bridge = bridge
+            bridge.queue.async {
+                deliver(bridge.run("tell application id \"com.apple.Music\" to get raw data of artwork 1 of current track")?.data)
+            }
+        } else {
+            deliver(nil)
+        }
+    }
+
+    /// Covers can be 3000 px; the card and the backdrop never need more than 600.
+    nonisolated private static func downscaled(_ image: NSImage, to limit: CGFloat = 600) -> NSImage {
+        let s = image.size
+        let k = min(1, limit / max(s.width, s.height))
+        let w = Int(s.width * k), h = Int(s.height * k)
+        guard k < 1, w > 0, h > 0, let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+            isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return image }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        image.draw(in: NSRect(x: 0, y: 0, width: w, height: h))
+        NSGraphicsContext.restoreGraphicsState()
+        let out = NSImage(size: NSSize(width: w, height: h))
+        out.addRepresentation(rep)
+        return out
     }
 
     private static func runningPlayers() -> [Track.Player] {
-        let ids = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
-        return Track.Player.allCases.filter { ids.contains($0.rawValue) }
+        Track.Player.allCases.filter { !NSRunningApplication.runningApplications(withBundleIdentifier: $0.rawValue).isEmpty }
     }
 }
 
@@ -169,10 +202,13 @@ final class NowPlaying: ObservableObject {
 final class PlayerBridge {
     let queue = DispatchQueue(label: "Interlude.players")
     private var scripts: [String: NSAppleScript] = [:]
+    /// Players already allowed to be scripted, so a poll skips the permission check. A failed read or
+    /// a permission request updates it.
+    private var granted: Set<Track.Player> = []
 
     /// The playing track, else a paused one. Never launches a player or prompts.
     func read(_ running: [Track.Player]) -> Track? {
-        let tracks = running.filter { permitted($0, ask: false) }.compactMap(track)
+        let tracks = running.filter { granted.contains($0) || permitted($0, ask: false) }.compactMap(track)
         return tracks.first(where: \.playing) ?? tracks.first
     }
 
@@ -182,19 +218,19 @@ final class PlayerBridge {
         tell application id "\(player.rawValue)"
             if player state is stopped then return {}
             set t to current track
-            return {name of t, artist of t, duration of t, player position, player state is playing\(artwork)}
+            return {name of t, artist of t, duration of t, player state is playing\(artwork)}
         end tell
         """
-        guard let list = run(source), list.numberOfItems >= 5 else { return nil }
+        guard let list = run(source) else { granted.remove(player); return nil } // maybe revoked: check again next poll
+        guard list.numberOfItems >= 4 else { return nil }
         let duration = list.atIndex(3)?.doubleValue ?? 0
         return Track(
             player: player,
             title: list.atIndex(1)?.stringValue ?? "",
             artist: list.atIndex(2)?.stringValue ?? "",
             duration: player == .spotify ? duration / 1000 : duration, // Spotify reports milliseconds
-            position: list.atIndex(4)?.doubleValue ?? 0,
-            playing: list.atIndex(5)?.booleanValue ?? false,
-            artworkURL: list.numberOfItems >= 6 ? list.atIndex(6)?.stringValue.flatMap(URL.init(string:)) : nil
+            playing: list.atIndex(4)?.booleanValue ?? false,
+            artworkURL: list.numberOfItems >= 5 ? list.atIndex(5)?.stringValue.flatMap(URL.init(string:)) : nil
         )
     }
 
@@ -210,8 +246,10 @@ final class PlayerBridge {
     /// Automation permission for a player. With `ask`, shows the system prompt if needed.
     func permitted(_ player: Track.Player, ask: Bool) -> Bool {
         let target = NSAppleEventDescriptor(bundleIdentifier: player.rawValue)
-        return withExtendedLifetime(target) {
+        let ok = withExtendedLifetime(target) {
             AEDeterminePermissionToAutomateTarget(target.aeDesc, AEEventClass(typeWildCard), AEEventID(typeWildCard), ask) == noErr
         }
+        if ok { granted.insert(player) } else { granted.remove(player) }
+        return ok
     }
 }
