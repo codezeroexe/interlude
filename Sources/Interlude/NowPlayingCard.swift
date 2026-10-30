@@ -142,16 +142,18 @@ struct NowPlayingCard: View {
         Color.clear.overlay { artwork }.clipped()
     }
 
-    /// When on, the cover is printed into the glass: it keeps only its light and dark, takes its colour
-    /// from the wallpaper behind (luminosity blend), and lets that show through, like the other cards.
+    /// When on, the cover is printed into the glass: it keeps only its light and dark, and the glass
+    /// shows through it a little, like the other cards.
     @AppStorage("monochromeArtwork") private var monochrome = true
 
     @ViewBuilder private var artwork: some View {
         Group {
             if !idle, let image = nowPlaying.artwork {
                 Image(nsImage: image).resizable().scaledToFill()
-                    .blendMode(monochrome ? .luminosity : .normal)
-                    .opacity(monochrome ? 0.6 : 1)
+                    // Plain grey, not a luminosity blend: a blend skips the glass and lets the sharp
+                    // video show through a cover's dark areas.
+                    .grayscale(monochrome ? 1 : 0)
+                    .opacity(monochrome ? 0.4 : 1)
                     .animation(.smooth(duration: 0.6), value: monochrome)
             } else {
                 Rectangle().fill(.white.opacity(0.12))
