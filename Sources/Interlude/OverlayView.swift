@@ -266,7 +266,6 @@ struct ClockCard: View {
     /// Card unit from the clock-fonts mockup, where the medium card is 26.43 units tall. Everything in
     /// this card is sized in it, so the card matches the mockup at any screen size.
     private var k: CGFloat { grid.s / 26.43 }
-    private var analog: Bool { (size == .small || size == .large) && style == 1 }
 
     /// The time in the chosen clock font, `scale` times the medium card's size. The negative bottom
     /// padding matches the mockup's CSS line height: (line height − ascent − descent) / 2.
@@ -325,13 +324,7 @@ struct ClockCard: View {
     }
 
     var body: some View {
-        Group {
-            if analog {
-                TimelineView(.periodic(from: .now, by: 1)) { content($0.date) }
-            } else {
-                TimelineView(.everyMinute) { content($0.date) }
-            }
-        }
+        TimelineView(.everyMinute) { content($0.date) }
         .frame(width: grid.w(size), height: grid.h(size))
         .glass(grid)
     }

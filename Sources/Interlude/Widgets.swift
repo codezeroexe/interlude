@@ -75,6 +75,7 @@ struct WeatherCard: View {
                 Text([weather.condition, highLow].compactMap { $0 }.joined(separator: " · "))
                     .font(.system(size: 1.6 * u)).opacity(0.7)
                 Spacer(minLength: 0)
+                hours.padding(.bottom, 1.4 * u)
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 1 * u), GridItem(.flexible())], spacing: 1 * u) {
                     tile("FEELS LIKE", weather.feelsLike.map { "\($0)°" })
                     tile("HUMIDITY", weather.humidity.map { "\($0)%" })
@@ -285,13 +286,22 @@ struct RemindersCard: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack { chip; Spacer(); count(3.4) }
                 Spacer(minLength: 0)
-                items(2, dates: false)
+                items(4, dates: false)
             }
         case (.medium, 1):
+            VStack(alignment: .leading, spacing: 1.4 * u) {
+                HStack {
+                    Text(reminders.listName).font(.system(size: 2 * u, weight: .semibold)).lineLimit(1)
+                    Spacer()
+                    count(3.2)
+                }
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 1.6 * u), GridItem(.flexible())], alignment: .leading, spacing: 1.1 * u) {
-                ForEach(reminders.items.prefix(6)) { row($0, dates: false) }
+                let shown = reminders.items.count > 6 ? 5 : 6
+                ForEach(reminders.items.prefix(shown)) { row($0, dates: false) }
+                if reminders.items.count > 6 { more }
             }
-            .frame(maxHeight: .infinity)
+            .frame(maxHeight: .infinity, alignment: .top)
+            }
         case (.medium, _):
             HStack(alignment: .top, spacing: 2 * u) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -317,9 +327,16 @@ struct RemindersCard: View {
         }
     }
 
+    private var more: some View {
+        Text("…").font(.system(size: 1.6 * grid.u)).opacity(0.7).padding(.leading, 0.2 * grid.u)
+    }
+
+    /// Up to n rows; when there are more than n, the last row becomes "…".
     private func items(_ n: Int, dates: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 1.1 * grid.u) {
-            ForEach(reminders.items.prefix(n)) { row($0, dates: dates) }
+        let over = reminders.items.count > n
+        return VStack(alignment: .leading, spacing: 1.1 * grid.u) {
+            ForEach(reminders.items.prefix(over ? n - 1 : n)) { row($0, dates: dates) }
+            if over { more }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
@@ -411,14 +428,7 @@ struct WorldClockCard: View {
 
     var body: some View {
         let cities = Array(WorldCity.load(raw).prefix(size == .small ? (style == 1 ? 3 : 1) : 4))
-        // Digital list shows hh:mm only; the analog faces have a second hand.
-        Group {
-            if style == 1 {
-                TimelineView(.everyMinute) { content(cities, $0.date) }
-            } else {
-                TimelineView(.periodic(from: .now, by: 1)) { content(cities, $0.date) }
-            }
-        }
+        TimelineView(.everyMinute) { content(cities, $0.date) }
         .padding(1.6 * grid.u)
         .frame(width: grid.w(size), height: grid.h(size))
         .glass(grid)
@@ -535,8 +545,9 @@ struct WorldClockCard: View {
     }
 }
 
-/// A Clock-app style face, see-through: 12 numerals, hour and minute hands, a grey second hand.
-/// Daytime cities get a faint glass fill so day and night still read apart.
+/// A Clock-app style face, see-through: 12, 3, 6, 9 and two hands that stop short of them (no second
+/// hand, so it only needs a redraw each minute). Daytime cities get a faint glass fill so day and night
+/// still read apart.
 struct AnalogFace: View {
     let date: Date
     let zone: TimeZone
@@ -545,22 +556,21 @@ struct AnalogFace: View {
     var body: some View {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = zone
-        let c = calendar.dateComponents([.hour, .minute, .second], from: date)
-        let hour = Double(c.hour ?? 0), minute = Double(c.minute ?? 0), second = Double(c.second ?? 0)
+        let c = calendar.dateComponents([.hour, .minute], from: date)
+        let hour = Double(c.hour ?? 0), minute = Double(c.minute ?? 0)
         let day = (6..<18).contains(c.hour ?? 0)
         return ZStack {
             Circle().fill(.white.opacity(day ? 0.1 : 0))
             Circle().strokeBorder(.white.opacity(day ? 0.3 : 0.2), lineWidth: max(1, size * 0.01))
-            ForEach(1...12, id: \.self) { n in
+            ForEach([12, 3, 6, 9], id: \.self) { n in
                 let a = Double(n) / 12 * 2 * .pi
                 Text("\(n)")
-                    .font(.system(size: size * 0.13, weight: .medium))
-                    .offset(x: sin(a) * size * 0.38, y: -cos(a) * size * 0.38)
+                    .font(.system(size: size * 0.15, weight: .medium))
+                    .offset(x: sin(a) * size * 0.405, y: -cos(a) * size * 0.405)
             }
-            hand(angle: (hour.truncatingRemainder(dividingBy: 12) + minute / 60) / 12, length: 0.25, width: 0.045, color: .white)
-            hand(angle: (minute + second / 60) / 60, length: 0.38, width: 0.035, color: .white)
-            hand(angle: second / 60, length: 0.42, width: 0.012, color: Color(white: 0.6))
-            Circle().fill(Color(white: 0.6)).frame(width: size * 0.05)
+            hand(angle: (hour.truncatingRemainder(dividingBy: 12) + minute / 60) / 12, length: 0.25, width: 0.045)
+            hand(angle: minute / 60, length: 0.32, width: 0.035)
+            Circle().fill(.white).frame(width: size * 0.05)
         }
         .foregroundStyle(.white)
         .frame(width: size, height: size)
@@ -568,9 +578,9 @@ struct AnalogFace: View {
         .accessibilityLabel(date.formatted(Date.FormatStyle(date: .omitted, time: .shortened, timeZone: zone)))
     }
 
-    private func hand(angle: Double, length: CGFloat, width: CGFloat, color: Color) -> some View {
+    private func hand(angle: Double, length: CGFloat, width: CGFloat) -> some View {
         Capsule()
-            .fill(color)
+            .fill(.white)
             .frame(width: size * width, height: size * length)
             .offset(y: -size * length / 2)
             .rotationEffect(.radians(angle * 2 * .pi))
@@ -735,7 +745,7 @@ struct TimerCard: View {
             }
         case (_, 1):
             VStack(alignment: .leading, spacing: 0) {
-                HStack { title; Spacer(); ends(left, now) }
+                HStack(spacing: 0.8 * u) { title; Spacer(); ends(left, now); playPause }
                 Spacer(minLength: 0)
                 RollingText(text: text(left), distance: 3 * u, tracking: -0.3 * u)
                     .font(.system(size: 8.5 * u, weight: .medium))
